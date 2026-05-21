@@ -1,0 +1,4 @@
+<Solution>
+  <Project Path="VictumPOS/VictumPOS.csproj" />
+  <Project Path="VictumPOS.PrintBridge.Service/VictumPOS.PrintBridge.Service.csproj" />
+</Solution>

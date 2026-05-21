@@ -1,0 +1,56 @@
+# Build output
+[Bb]in/
+[Oo]bj/
+[Dd]ebug/
+[Rr]elease/
+x64/
+x86/
+ARM/
+ARM64/
+
+# Visual Studio / Rider
+.vs/
+.idea/
+*.user
+*.rsuser
+*.suo
+*.userosscache
+*.sln.docstates
+*.VC.db
+*.VC.VC.opendb
+
+# .NET / NuGet
+packages/
+*.nupkg
+*.snupkg
+project.lock.json
+project.assets.json
+*.nuget.props
+*.nuget.targets
+
+# WPF generated files
+GeneratedInternalTypeHelper.g.cs
+*.g.cs
+*.g.i.cs
+*.baml
+*.cache
+*.pdb
+*.ilk
+*.iobj
+*.ipdb
+
+# Installer/build artifacts
+artifacts/
+tools/inno/prerequisites/
+
+# Logs and local runtime data
+*.log
+logs/
+WebView2/
+*.tmp
+*.temp
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini

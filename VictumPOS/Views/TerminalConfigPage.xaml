@@ -1,0 +1,200 @@
+<Page x:Class="VictumPOS.Views.TerminalConfigPage"
+      xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+      xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+      Background="{StaticResource AppBackgroundBrush}">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <Grid Margin="24" MaxWidth="1120">
+            <StackPanel>
+                <Border Style="{StaticResource PageHeaderCardStyle}">
+                    <StackPanel>
+                        <TextBlock Text="Configuracion de Terminal"
+                                   FontSize="26"
+                                   FontWeight="SemiBold"
+                                   Foreground="White"/>
+                        <TextBlock Text="Ajustes para terminal, web, ubicacion, impresion, mantenimiento y diagnostico."
+                                   Foreground="#D9FFFFFF"
+                                   FontSize="14"
+                                   Margin="0,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <StackPanel Grid.Column="0" Margin="0,0,9,0">
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Identidad de terminal" Style="{StaticResource CardTitleText}"/>
+                                <TextBlock Text="Datos que la web usa para reconocer este POS." Foreground="{StaticResource AppMutedTextBrush}" Margin="0,2,0,8"/>
+                                <TextBlock Text="Nombre de terminal" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="TerminalName"/>
+                                <TextBlock Text="Sucursal asignada" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="BranchName"/>
+                                <TextBlock Text="Codigo de terminal" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="TerminalCode"/>
+                                <TextBlock Text="Modo de operacion" Style="{StaticResource FieldLabelText}"/>
+                                <ComboBox x:Name="OperationMode">
+                                    <ComboBoxItem Content="Caja"/>
+                                    <ComboBoxItem Content="Cocina"/>
+                                    <ComboBoxItem Content="Bar"/>
+                                    <ComboBoxItem Content="Servicio"/>
+                                </ComboBox>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Sistema web" Style="{StaticResource CardTitleText}"/>
+                                <TextBlock Text="Control de URL, carga y comportamiento del WebView." Foreground="{StaticResource AppMutedTextBrush}" Margin="0,2,0,8"/>
+                                <TextBlock Text="URL del sistema" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="SystemUrl"/>
+                                <CheckBox x:Name="AutoReload" Content="Auto-recargar si falla internet" Margin="0,6"/>
+                                <CheckBox x:Name="KioskMode" Content="Modo kiosko / pantalla completa" Margin="0,6"/>
+                                <CheckBox x:Name="AppAutoStart" Content="Abrir VictumPOS al iniciar Windows" Margin="0,6"/>
+                                <CheckBox x:Name="TouchKeyboard" Content="Teclado tactil en campos" Margin="0,6"/>
+                                <CheckBox x:Name="KeepScreenOn" Content="Mantener pantalla encendida" Margin="0,6"/>
+                                <CheckBox x:Name="LockWebZoom" Content="Bloquear zoom accidental en la web" Margin="0,6"/>
+                                <CheckBox x:Name="ClearCacheOnStart" Content="Limpiar cache web al iniciar" Margin="0,6"/>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Validacion de sucursal" Style="{StaticResource CardTitleText}"/>
+                                <TextBlock Text="La app envia a la web la ubicacion esperada de la sucursal." Foreground="{StaticResource AppMutedTextBrush}" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                                <CheckBox x:Name="LocationValidation" Content="Activar validacion por ubicacion" Margin="0,6"/>
+                                <TextBlock Text="Latitud de la sucursal" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="BranchLatitude"/>
+                                <TextBlock Text="Longitud de la sucursal" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="BranchLongitude"/>
+                                <TextBlock Text="Distancia maxima permitida en metros" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="BranchRadius"/>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+
+                    <StackPanel Grid.Column="1" Margin="9,0,0,0">
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Impresion" Style="{StaticResource CardTitleText}"/>
+                                <TextBlock Text="Ajustes para impresoras termicas ESC/POS de red." Foreground="{StaticResource AppMutedTextBrush}" Margin="0,2,0,8"/>
+                                <TextBlock Text="Tiempo maximo de conexion en segundos" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="PrintTimeout"/>
+                                <TextBlock Text="Reintentos adicionales de impresion" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="PrintRetries"/>
+                                <TextBlock Text="Ancho raster" Style="{StaticResource FieldLabelText}"/>
+                                <ComboBox x:Name="PrintWidth">
+                                    <ComboBoxItem Content="384px" Tag="384"/>
+                                    <ComboBoxItem Content="576px" Tag="576"/>
+                                </ComboBox>
+                                <CheckBox x:Name="AutoCut" Content="Corte automatico al final" Margin="0,6"/>
+                                <CheckBox x:Name="PrintLogo" Content="Imprimir logo en facturas de texto" Margin="0,6"/>
+                                <TextBlock Text="Ruta del logo PNG para impresion" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="PrintLogoPath"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Click="BrowsePrintLogo_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Seleccionar logo" Foreground="White"/>
+                                    </Button>
+                                    <Button Click="UseDefaultPrintLogo_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Logo incluido" Foreground="White"/>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Ruteo de impresion" Style="{StaticResource CardTitleText}"/>
+                                <TextBlock Text="Datos para enviar tickets al servicio Windows." Foreground="{StaticResource AppMutedTextBrush}" TextWrapping="Wrap" Margin="0,2,0,8"/>
+                                <CheckBox x:Name="PrintBridgeEnabled" Content="Activar bridge de impresion" Margin="0,6"/>
+                                <TextBlock Text="IP o host del PC para Android" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="PrintBridgeHost"/>
+                                <TextBlock Text="Puerto del bridge" Style="{StaticResource FieldLabelText}"/>
+                                <TextBox x:Name="PrintBridgePort"/>
+                                <TextBlock Text="Impresora por defecto" Style="{StaticResource FieldLabelText}"/>
+                                <ComboBox x:Name="PrintBridgeDefaultPrinter">
+                                    <ComboBoxItem Content="Caja" Tag="cash"/>
+                                    <ComboBoxItem Content="Cocina" Tag="kitchen"/>
+                                    <ComboBoxItem Content="Bar" Tag="bar"/>
+                                </ComboBox>
+                                <TextBlock x:Name="PrintBridgeUrlText" Foreground="{StaticResource AppMutedTextBrush}" TextWrapping="Wrap" Margin="0,8"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Click="TestPrintBridgeRoute_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Probar" Foreground="White"/>
+                                    </Button>
+                                    <Button Click="CopyPrintBridgeUrl_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Copiar" Foreground="White"/>
+                                    </Button>
+                                </StackPanel>
+                                <TextBlock Text="Bridge Windows" FontSize="16" FontWeight="SemiBold" Margin="0,12,0,0"/>
+                                <TextBlock x:Name="PrintBridgeStatusText" Text="Consultando estado..." Foreground="{StaticResource AppMutedTextBrush}" TextWrapping="Wrap" Margin="0,4,0,8"/>
+                                <StackPanel Orientation="Horizontal">
+                                    <Button Click="RefreshPrintBridge_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Estado" Foreground="White"/>
+                                    </Button>
+                                    <Button Click="InstallStartPrintBridge_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Iniciar" Foreground="White"/>
+                                    </Button>
+                                    <Button Click="InstallAdminPrintBridge_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Servicio" Foreground="White"/>
+                                    </Button>
+                                    <Button Click="StopPrintBridge_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Detener" Foreground="White"/>
+                                    </Button>
+                                </StackPanel>
+                            </StackPanel>
+                        </Border>
+
+                        <Border Style="{StaticResource CardStyle}">
+                            <StackPanel>
+                                <TextBlock Text="Mantenimiento y diagnostico" Style="{StaticResource CardTitleText}"/>
+                                <Button Click="TestConnectivity_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                    <TextBlock Text="Test de conectividad" Foreground="White"/>
+                                </Button>
+                                <Button Click="TestNotification_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                    <TextBlock Text="Probar notificacion" Foreground="White"/>
+                                </Button>
+                                <Button Click="DeviceInfo_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                    <TextBlock Text="Informacion del dispositivo" Foreground="White"/>
+                                </Button>
+                                <Button Click="Logs_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                    <TextBlock Text="Ver logs recientes" Foreground="White"/>
+                                </Button>
+                                <Button Click="ClearCacheNextStart_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                    <TextBlock Text="Limpiar cache en el proximo inicio" Foreground="White"/>
+                                </Button>
+                            </StackPanel>
+                        </Border>
+                    </StackPanel>
+                </Grid>
+
+                <Border Style="{StaticResource ActionBarStyle}">
+                    <DockPanel LastChildFill="False">
+                        <TextBlock Text="Guarda despues de cambiar URL, bridge, impresion o comportamiento de la terminal."
+                                   Foreground="{StaticResource AppMutedTextBrush}"
+                                   VerticalAlignment="Center"
+                                   DockPanel.Dock="Left"/>
+                        <Button Click="Save_Click"
+                                Style="{StaticResource SecondaryButtonStyle}"
+                                DockPanel.Dock="Right">
+                            <TextBlock Text="Guardar configuracion" Foreground="White"/>
+                        </Button>
+                    </DockPanel>
+                </Border>
+
+                <Border x:Name="StatusBar"
+                        Padding="12,10"
+                        Background="#F0FDFA"
+                        BorderBrush="#00ACC1"
+                        BorderThickness="1"
+                        CornerRadius="8"
+                        Visibility="Collapsed">
+                    <TextBlock x:Name="StatusText" TextWrapping="Wrap"/>
+                </Border>
+            </StackPanel>
+        </Grid>
+    </ScrollViewer>
+</Page>
