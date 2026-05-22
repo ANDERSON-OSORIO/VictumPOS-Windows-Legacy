@@ -144,6 +144,9 @@
                                     <Button Click="StopPrintBridge_Click" Style="{StaticResource SecondaryButtonStyle}">
                                         <TextBlock Text="Detener" Foreground="White"/>
                                     </Button>
+                                    <Button Click="UninstallPrintBridge_Click" Style="{StaticResource SecondaryButtonStyle}">
+                                        <TextBlock Text="Desinstalar" Foreground="White"/>
+                                    </Button>
                                 </StackPanel>
                             </StackPanel>
                         </Border>

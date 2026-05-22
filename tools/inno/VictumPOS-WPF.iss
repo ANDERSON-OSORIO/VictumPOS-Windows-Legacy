@@ -32,7 +32,8 @@ Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
 [Tasks]
 Name: "desktopicon"; Description: "Crear acceso directo en el escritorio"; GroupDescription: "Accesos directos:"; Flags: checkedonce
 Name: "autostart"; Description: "Abrir VictumPOS al iniciar Windows"; GroupDescription: "Inicio de Windows:"; Flags: checkedonce
-Name: "bridgeuser"; Description: "Iniciar Print Bridge en modo usuario"; GroupDescription: "Print Bridge:"; Flags: checkedonce exclusive
+Name: "bridgenone"; Description: "No iniciar ni instalar Print Bridge"; GroupDescription: "Print Bridge:"; Flags: checkedonce exclusive
+Name: "bridgeuser"; Description: "Iniciar Print Bridge en modo usuario"; GroupDescription: "Print Bridge:"; Flags: unchecked exclusive
 Name: "bridgeservice"; Description: "Instalar Print Bridge como servicio Windows"; GroupDescription: "Print Bridge:"; Flags: unchecked exclusive
 
 [Dirs]

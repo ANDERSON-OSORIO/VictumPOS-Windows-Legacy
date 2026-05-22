@@ -66,10 +66,46 @@ namespace VictumPOS.Services
             await Task.Delay(1200);
 
             var status = await GetStatusAsync();
-            if (!status.IsRunning || result.ExitCode == 0)
+            if (!status.IsRunning)
                 return status.Message;
 
-            return "No se pudo detener: " + BuildActionError(result.Output, status.Message);
+            if (result.ExitCode == 0)
+            {
+                await Task.Delay(2500);
+                status = await GetStatusAsync();
+                if (!status.IsRunning)
+                    return status.Message;
+            }
+
+            var elevated = await RunServiceCommandElevatedAsync("stop");
+            await Task.Delay(1200);
+            status = await GetStatusAsync();
+
+            if (!status.IsRunning)
+                return "Servicio detenido";
+
+            return "No se pudo detener: " + BuildActionError(elevated, BuildActionError(result.Output, status.Message));
+        }
+
+        public async Task<string> UninstallWindowsServiceAsync()
+        {
+            UnregisterUserBridgeAutoStart();
+            await StopUserBridgeAsync();
+
+            var query = await RunProcessAsync("sc.exe", "query " + ServiceName);
+            if (query.ExitCode != 0)
+                return "Servicio no instalado. Bridge de usuario removido si existia.";
+
+            await RunServiceCommandElevatedAsync("stop");
+            await Task.Delay(1000);
+
+            var output = await RunServiceCommandElevatedAsync("uninstall");
+            await Task.Delay(1000);
+
+            var status = await GetStatusAsync();
+            return status.IsInstalled
+                ? "No se pudo desinstalar el servicio: " + output
+                : "Servicio Print Bridge desinstalado";
         }
 
         public async Task<string> InstallAndStartAsync()
@@ -251,6 +287,7 @@ namespace VictumPOS.Services
             {
             }
 
+            stopped = KillUserBridgeProcesses() || stopped;
             TryDelete(UserBridgePidPath());
             await Task.Delay(500);
 
@@ -258,6 +295,39 @@ namespace VictumPOS.Services
                 return stopped ? "Bridge local detenido" : "Bridge local no estaba activo";
 
             return "Autoarranque del bridge local removido, pero el proceso aun responde.";
+        }
+
+        private static bool KillUserBridgeProcesses()
+        {
+            var stopped = false;
+
+            try
+            {
+                foreach (var process in Process.GetProcesses())
+                {
+                    try
+                    {
+                        if (process.ProcessName.IndexOf("VictumPOS.PrintBridge.Service", StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+
+                        process.Kill();
+                        process.WaitForExit(3000);
+                        stopped = true;
+                    }
+                    catch
+                    {
+                    }
+                    finally
+                    {
+                        process.Dispose();
+                    }
+                }
+            }
+            catch
+            {
+            }
+
+            return stopped;
         }
 
         private void RegisterUserBridgeAutoStart(string serviceExe)
@@ -406,6 +476,39 @@ namespace VictumPOS.Services
                     return new ProcessResult(process.ExitCode, output);
                 }
             });
+        }
+
+        private async Task<string> RunServiceCommandElevatedAsync(string command)
+        {
+            var serviceExe = FindServiceExecutable();
+            if (string.IsNullOrWhiteSpace(serviceExe))
+                return "No se encontro VictumPOS.PrintBridge.Service.exe en la instalacion.";
+
+            var startInfo = new ProcessStartInfo(serviceExe)
+            {
+                UseShellExecute = true,
+                Verb = "runas",
+                WorkingDirectory = Path.GetDirectoryName(serviceExe),
+                Arguments = command
+            };
+
+            try
+            {
+                using (var process = Process.Start(startInfo))
+                {
+                    if (process == null)
+                        return "No se pudo abrir el comando " + command + ".";
+
+                    await Task.Run(() => process.WaitForExit());
+                    return process.ExitCode == 0
+                        ? "Comando " + command + " ejecutado"
+                        : "Comando " + command + " termino con codigo " + process.ExitCode;
+                }
+            }
+            catch (Exception ex)
+            {
+                return "No se pudo ejecutar " + command + " como administrador: " + ex.Message;
+            }
         }
 
         private static string Quote(string value)

@@ -1,4 +1,4 @@
 <Solution>
-  <Project Path="VictumPOS/VictumPOS.csproj" />
-  <Project Path="VictumPOS.PrintBridge.Service/VictumPOS.PrintBridge.Service.csproj" />
+  <Project Path="VictumPOS/VictumPOS.csproj" Id="eae7ec66-effb-4beb-ad2b-8fa09ba261d2" />
+  <Project Path="VictumPOS.PrintBridge.Service/VictumPOS.PrintBridge.Service.csproj" Id="a98c90e8-d988-4f3c-bee8-0b711a27f30d" />
 </Solution>

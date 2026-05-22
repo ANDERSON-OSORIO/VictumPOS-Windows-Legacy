@@ -302,6 +302,32 @@ namespace VictumPOS.Views
             }
         }
 
+        private async void UninstallPrintBridge_Click(object sender, RoutedEventArgs e)
+        {
+            var owner = Window.GetWindow(this);
+            var confirm = MessageBox.Show(
+                owner,
+                "Esto detendra y desinstalara el servicio Windows de Print Bridge. La configuracion guardada no se borra.",
+                "Desinstalar Print Bridge",
+                MessageBoxButton.YesNo,
+                MessageBoxImage.Question,
+                MessageBoxResult.No);
+
+            if (confirm != MessageBoxResult.Yes)
+                return;
+
+            try
+            {
+                ShowInfo("Desinstalando servicio Print Bridge...");
+                ShowInfo(await _printBridge.UninstallWindowsServiceAsync());
+                await RefreshPrintBridgeStatusAsync();
+            }
+            catch (Exception ex)
+            {
+                ShowError("No se pudo desinstalar el bridge: " + ex.Message);
+            }
+        }
+
         private async Task RefreshPrintBridgeStatusAsync()
         {
             try
