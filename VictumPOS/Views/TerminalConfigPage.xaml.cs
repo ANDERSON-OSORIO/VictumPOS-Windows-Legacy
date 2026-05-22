@@ -348,7 +348,7 @@ namespace VictumPOS.Views
                 Title = "Seleccionar logo de impresion"
             };
 
-            if (picker.ShowDialog() == true)
+            if (picker.ShowDialog(Window.GetWindow(this)) == true)
             {
                 PrintLogoPath.Text = picker.FileName;
                 PrintLogo.IsChecked = true;
@@ -510,10 +510,18 @@ namespace VictumPOS.Views
                 MinWidth = 560,
                 MinHeight = 420,
                 WindowStartupLocation = owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
-                Owner = owner
+                Owner = owner,
+                Topmost = owner != null && owner.Topmost,
+                ShowInTaskbar = owner == null,
+                Icon = owner == null ? null : owner.Icon
             };
 
             closeButton.Click += (_, __) => window.Close();
+            window.Loaded += (_, __) =>
+            {
+                window.Activate();
+                window.Focus();
+            };
             window.ShowDialog();
         }
 
@@ -662,10 +670,18 @@ namespace VictumPOS.Views
                 MinWidth = 520,
                 MinHeight = 320,
                 WindowStartupLocation = owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
-                Owner = owner
+                Owner = owner,
+                Topmost = owner != null && owner.Topmost,
+                ShowInTaskbar = owner == null,
+                Icon = owner == null ? null : owner.Icon
             };
 
             closeButton.Click += (_, __) => window.Close();
+            window.Loaded += (_, __) =>
+            {
+                window.Activate();
+                window.Focus();
+            };
             window.ShowDialog();
         }
 

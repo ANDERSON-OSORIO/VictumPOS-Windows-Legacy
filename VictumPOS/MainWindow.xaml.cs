@@ -681,11 +681,9 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 Title = "Configuracion de impresoras",
                 Content = new Views.SettingsPage(),
                 Width = 1000,
-                Height = 650,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Owner = this
+                Height = 650
             };
-            window.Show();
+            ShowOwnedWindow(window);
         }
 
         private void Config_Click(object sender, RoutedEventArgs e)
@@ -695,11 +693,24 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 Title = "Configuracion de terminal",
                 Content = new Views.TerminalConfigPage(),
                 Width = 1100,
-                Height = 760,
-                WindowStartupLocation = WindowStartupLocation.CenterOwner,
-                Owner = this
+                Height = 760
             };
-            window.Show();
+            ShowOwnedWindow(window);
+        }
+
+        private void ShowOwnedWindow(Window window)
+        {
+            window.Owner = this;
+            window.Icon = Icon;
+            window.ShowInTaskbar = false;
+            window.Topmost = Topmost;
+            window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
+            window.Loaded += (_, __) =>
+            {
+                window.Activate();
+                window.Focus();
+            };
+            window.ShowDialog();
         }
 
         private void Shortcuts_Click(object sender, RoutedEventArgs e)
@@ -769,10 +780,17 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 ResizeMode = ResizeMode.NoResize,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
+                Topmost = Topmost,
+                ShowInTaskbar = false,
                 Icon = Icon
             };
 
             closeButton.Click += (_, __) => window.Close();
+            window.Loaded += (_, __) =>
+            {
+                window.Activate();
+                window.Focus();
+            };
             window.ShowDialog();
         }
 
@@ -895,13 +913,24 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
 
         private void ShowNotification(string title, string message)
         {
-            BringMainWindowToFront();
+            if (!HasVisibleOwnedWindow())
+                BringMainWindowToFront();
+
             NotificationText.Text = (string.IsNullOrWhiteSpace(title) ? "Notificacion" : title) +
                 (string.IsNullOrWhiteSpace(message) ? "" : ": " + message);
             NotificationBar.Visibility = Visibility.Visible;
             _notificationTimer.Stop();
             _notificationTimer.Start();
             SystemNotificationService.Show(title, message);
+        }
+
+        private bool HasVisibleOwnedWindow()
+        {
+            foreach (Window window in OwnedWindows)
+                if (window.IsVisible)
+                    return true;
+
+            return false;
         }
 
         private void BringMainWindowToFront()
@@ -919,7 +948,9 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
 
                     Activate();
                     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+                    if (!Topmost)
+                        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+
                     SetForegroundWindow(hwnd);
                 }
                 catch (Exception ex)
