@@ -511,7 +511,7 @@ namespace VictumPOS.Views
                 MinHeight = 420,
                 WindowStartupLocation = owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
                 Owner = owner,
-                Topmost = owner != null && owner.Topmost,
+                Topmost = false,
                 ShowInTaskbar = owner == null,
                 Icon = owner == null ? null : owner.Icon
             };
@@ -671,7 +671,7 @@ namespace VictumPOS.Views
                 MinHeight = 320,
                 WindowStartupLocation = owner == null ? WindowStartupLocation.CenterScreen : WindowStartupLocation.CenterOwner,
                 Owner = owner,
-                Topmost = owner != null && owner.Topmost,
+                Topmost = false,
                 ShowInTaskbar = owner == null,
                 Icon = owner == null ? null : owner.Icon
             };

@@ -441,7 +441,7 @@ namespace VictumPOS
                 WindowStyle = WindowStyle.None;
                 WindowState = WindowState.Maximized;
                 ResizeMode = ResizeMode.NoResize;
-                Topmost = true;
+                Topmost = false;
             }
             else
             {
@@ -703,7 +703,7 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             window.Owner = this;
             window.Icon = Icon;
             window.ShowInTaskbar = false;
-            window.Topmost = Topmost;
+            window.Topmost = false;
             window.WindowStartupLocation = WindowStartupLocation.CenterOwner;
             window.Loaded += (_, __) =>
             {
@@ -780,7 +780,7 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 ResizeMode = ResizeMode.NoResize,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
                 Owner = this,
-                Topmost = Topmost,
+                Topmost = false,
                 ShowInTaskbar = false,
                 Icon = Icon
             };
@@ -948,9 +948,7 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
 
                     Activate();
                     SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-                    if (!Topmost)
-                        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-
+                    SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
                     SetForegroundWindow(hwnd);
                 }
                 catch (Exception ex)
