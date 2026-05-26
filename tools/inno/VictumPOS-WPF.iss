@@ -1,5 +1,5 @@
 #define MyAppName "VictumPOS"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.67"
 #define MyAppPublisher "VictumPOS"
 #define MyAppExeName "VictumPOS.exe"
 #define StageDir "..\..\artifacts\VictumPOS-win-installer"
@@ -9,12 +9,15 @@
 AppId={{71C1A403-B050-4C45-BD97-A82AC0E7D4C9}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
+AppVerName={#MyAppName} {#MyAppVersion} WebView2
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\VictumPOS
 DefaultGroupName=VictumPOS
 DisableProgramGroupPage=yes
 OutputDir={#InstallerOutputDir}
-OutputBaseFilename=VictumPOS-Windows-Setup
+OutputBaseFilename=VictumPOS-Windows10-WebView2-Setup
+VersionInfoVersion={#MyAppVersion}
+VersionInfoProductVersion={#MyAppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -25,6 +28,7 @@ SetupIconFile=..\..\VictumPOS\favicon.ico
 SetupLogging=yes
 CloseApplications=yes
 RestartApplications=no
+MinVersion=10.0
 
 [Languages]
 Name: "spanish"; MessagesFile: "compiler:Languages\Spanish.isl"
@@ -44,7 +48,6 @@ Name: "{app}\PrintBridge"
 [Files]
 Source: "{#StageDir}\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs; Excludes: "Prerequisites\*,WebView2FixedRuntime\*,*.pdb,PrintBridge\*.pdb"
 Source: "{#StageDir}\Prerequisites\*"; DestDir: "{app}\Prerequisites"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
-Source: "{#StageDir}\WebView2FixedRuntime\*"; DestDir: "{app}\WebView2FixedRuntime"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\VictumPOS"; Filename: "{app}\{#MyAppExeName}"
@@ -56,8 +59,6 @@ Root: HKLM; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
 
 [Run]
 Filename: "{app}\Prerequisites\ndp472-kb4054530-x86-x64-allos-enu.exe"; Parameters: "/q /norestart"; StatusMsg: "Instalando .NET Framework 4.7.2..."; Check: NeedsDotNet472 and FileExists(ExpandConstant('{app}\Prerequisites\ndp472-kb4054530-x86-x64-allos-enu.exe')); Flags: waituntilterminated
-Filename: "{app}\Prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX64.exe"; Parameters: "/silent /install"; StatusMsg: "Instalando WebView2 Runtime..."; Check: NeedsEvergreenWebView2 and Is64BitInstallMode and FileExists(ExpandConstant('{app}\Prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX64.exe')); Flags: waituntilterminated
-Filename: "{app}\Prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX86.exe"; Parameters: "/silent /install"; StatusMsg: "Instalando WebView2 Runtime..."; Check: NeedsEvergreenWebView2 and not Is64BitInstallMode and FileExists(ExpandConstant('{app}\Prerequisites\MicrosoftEdgeWebView2RuntimeInstallerX86.exe')); Flags: waituntilterminated
 Filename: "{app}\PrintBridge\VictumPOS.PrintBridge.Service.exe"; Parameters: "install --port 9123 --settings ""{commonappdata}\VictumPOS\settings.json"""; StatusMsg: "Instalando Print Bridge como servicio..."; Tasks: bridgeservice; Flags: runhidden waituntilterminated
 Filename: "{app}\PrintBridge\VictumPOS.PrintBridge.Service.exe"; Parameters: "start"; StatusMsg: "Iniciando Print Bridge..."; Tasks: bridgeservice; Flags: runhidden waituntilterminated
 Filename: "{app}\PrintBridge\VictumPOS.PrintBridge.Service.exe"; Parameters: "user --port 9123 --settings ""{commonappdata}\VictumPOS\settings.json"""; StatusMsg: "Iniciando Print Bridge local..."; Tasks: bridgeuser; Flags: nowait runhidden
@@ -72,14 +73,6 @@ Filename: "{app}\PrintBridge\VictumPOS.PrintBridge.Service.exe"; Parameters: "un
 Type: files; Name: "{app}\*.old"
 
 [Code]
-function IsWindows7Or81: Boolean;
-var
-  Version: TWindowsVersion;
-begin
-  GetWindowsVersionEx(Version);
-  Result := (Version.Major = 6) and ((Version.Minor = 1) or (Version.Minor = 2) or (Version.Minor = 3));
-end;
-
 function NeedsDotNet472: Boolean;
 var
   Release: Cardinal;
@@ -89,21 +82,29 @@ begin
     Result := Release < 461808;
 end;
 
-function NeedsEvergreenWebView2: Boolean;
+function IsWebView2Installed: Boolean;
 var
   Version: String;
 begin
-  if IsWindows7Or81 then
-  begin
-    Result := False;
-    Exit;
-  end;
-
-  Result := True;
+  Result := False;
   if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F1E7F5D7-06F0-4D8E-9852-5B6F2D6F16F1}', 'pv', Version) then
     if Version <> '' then
-      Result := False;
-  if Result and RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F1E7F5D7-06F0-4D8E-9852-5B6F2D6F16F1}', 'pv', Version) then
+      Result := True;
+  if (not Result) and RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\{F1E7F5D7-06F0-4D8E-9852-5B6F2D6F16F1}', 'pv', Version) then
     if Version <> '' then
-      Result := False;
+      Result := True;
+end;
+
+function InitializeSetup: Boolean;
+begin
+  Result := True;
+  if not IsWebView2Installed then
+  begin
+    MsgBox(
+      'VictumPOS WebView2 requiere Microsoft Edge WebView2 Runtime instalado en Windows 10 o superior.' #13#10 #13#10 +
+      'Instala WebView2 Runtime de Microsoft y vuelve a ejecutar este instalador.',
+      mbError,
+      MB_OK);
+    Result := False;
+  end;
 end;

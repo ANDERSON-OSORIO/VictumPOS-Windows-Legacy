@@ -7,10 +7,6 @@ $downloads = @(
     @{
         Name = "ndp472-kb4054530-x86-x64-allos-enu.exe"
         Url = "https://go.microsoft.com/fwlink/?linkid=863265"
-    },
-    @{
-        Name = "MicrosoftEdgeWebView2RuntimeInstallerX64.exe"
-        Url = "https://go.microsoft.com/fwlink/p/?LinkId=2124703"
     }
 )
 
@@ -22,5 +18,5 @@ foreach ($item in $downloads) {
 
 Write-Host ""
 Write-Host "Descargas terminadas en $target"
-Write-Host "Para Windows 7/8/8.1 agrega manualmente WebView2 Fixed Runtime 109 en:"
-Write-Host (Join-Path $target "WebView2FixedRuntime")
+Write-Host "La variante WebView2 para Windows 10+ no empaca ni instala WebView2 Runtime."
+Write-Host "WebView2 Runtime debe estar instalado previamente en el equipo."

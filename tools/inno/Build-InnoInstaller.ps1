@@ -18,7 +18,7 @@ if (!(Test-Path $MsBuildPath)) {
     throw "MSBuild no encontrado: $MsBuildPath"
 }
 
-& $MsBuildPath $solution /t:Build /p:Configuration=$Configuration
+& $MsBuildPath $solution /restore /t:Build /p:Configuration=$Configuration
 if ($LASTEXITCODE -ne 0) {
     throw "MSBuild fallo con codigo $LASTEXITCODE"
 }
@@ -36,19 +36,12 @@ $prereqStage = Join-Path $stage "Prerequisites"
 New-Item -ItemType Directory -Force $prereqStage | Out-Null
 
 foreach ($file in @(
-    "ndp472-kb4054530-x86-x64-allos-enu.exe",
-    "MicrosoftEdgeWebView2RuntimeInstallerX64.exe",
-    "MicrosoftEdgeWebView2RuntimeInstallerX86.exe"
+    "ndp472-kb4054530-x86-x64-allos-enu.exe"
 )) {
     $source = Join-Path $prereq $file
     if (Test-Path $source) {
         Copy-Item -Force $source $prereqStage
     }
-}
-
-$fixedRuntime = Join-Path $prereq "WebView2FixedRuntime"
-if (Test-Path $fixedRuntime) {
-    Copy-Item -Recurse -Force $fixedRuntime (Join-Path $stage "WebView2FixedRuntime")
 }
 
 Get-ChildItem -Path $stage -Recurse -Filter *.pdb -ErrorAction SilentlyContinue | Remove-Item -Force
