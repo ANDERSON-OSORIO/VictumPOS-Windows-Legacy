@@ -277,7 +277,7 @@ namespace VictumPOS
                         const start = touchStart[0];
                         const changed = e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
                         if (touchStart.length === 2 && !touchMoved && elapsed < 550) {
-                            postTouchGesture('shortcuts');
+                            postTouchGesture('gestures');
                             touchStart = null;
                             return;
                         }
@@ -631,6 +631,7 @@ namespace VictumPOS
             {
                 var enabled = _settingsService.IsTouchGesturesEnabled();
                 webView.IsManipulationEnabled = enabled;
+                GesturesButton.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
                 Stylus.SetIsPressAndHoldEnabled(webView, !enabled);
                 Stylus.SetIsFlicksEnabled(webView, false);
                 Stylus.SetIsTapFeedbackEnabled(webView, !enabled);
@@ -963,6 +964,11 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             ShowShortcutsDialog();
         }
 
+        private void Gestures_Click(object sender, RoutedEventArgs e)
+        {
+            ShowGesturesDialog();
+        }
+
         private void ShowShortcutsDialog()
         {
             var content = new StackPanel { Margin = new Thickness(18) };
@@ -998,17 +1004,6 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             AddShortcutRow(list, "Ctrl + /", "Ver atajos");
             AddShortcutRow(list, "Ctrl + Q", "Salir");
 
-            if (_settingsService.IsTouchGesturesEnabled())
-            {
-                AddShortcutSection(list, "Gestos tactiles");
-                AddShortcutRow(list, "Deslizar derecha", "Atras");
-                AddShortcutRow(list, "Deslizar izquierda", "Adelante");
-                AddShortcutRow(list, "Dos dedos vertical", "Scroll");
-                AddShortcutRow(list, "Dos dedos toque", "Ver atajos");
-                AddShortcutRow(list, "Desde arriba abajo", "Actualizar");
-                AddShortcutRow(list, "Desde abajo arriba", "Inicio");
-            }
-
             var closeButton = new Button
             {
                 Width = 120,
@@ -1030,8 +1025,86 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 Title = "Atajos de teclado",
                 Content = layout,
                 Width = 480,
-                Height = _settingsService.IsTouchGesturesEnabled() ? 690 : 540,
+                Height = 540,
                 MinWidth = 420,
+                MinHeight = 420,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                Topmost = false,
+                ShowInTaskbar = false,
+                Icon = Icon
+            };
+
+            closeButton.Click += (_, __) => window.Close();
+            window.Loaded += (_, __) =>
+            {
+                window.Activate();
+                window.Focus();
+            };
+            window.ShowDialog();
+        }
+
+        private void ShowGesturesDialog()
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            var content = new StackPanel { Margin = new Thickness(18) };
+            content.Children.Add(new TextBlock
+            {
+                Text = "Gestos tactiles",
+                FontSize = 24,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = "Acciones tactiles disponibles en la terminal.",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromRgb(217, 255, 255)),
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+
+            var header = new Border
+            {
+                Background = (Brush)FindResource("ToolbarGradientBrush"),
+                CornerRadius = new CornerRadius(10, 10, 0, 0),
+                Child = content
+            };
+
+            var list = new StackPanel { Margin = new Thickness(18, 14, 18, 10) };
+            const double gestureLabelWidth = 280;
+            AddShortcutRow(list, "Deslizar derecha", "Atras", gestureLabelWidth);
+            AddShortcutRow(list, "Deslizar izquierda", "Adelante", gestureLabelWidth);
+            AddShortcutRow(list, "Dos dedos vertical", "Scroll", gestureLabelWidth);
+            AddShortcutRow(list, "Toque con dos dedos", "Ver gestos", gestureLabelWidth);
+            AddShortcutRow(list, "Desde borde superior hacia abajo", "Actualizar", gestureLabelWidth);
+            AddShortcutRow(list, "Desde borde inferior hacia arriba", "Inicio", gestureLabelWidth);
+
+            var closeButton = new Button
+            {
+                Width = 120,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Style = (Style)FindResource("SecondaryButtonStyle"),
+                Margin = new Thickness(18, 2, 18, 18),
+                Content = new TextBlock { Text = "Cerrar", Foreground = Brushes.White }
+            };
+
+            var layout = new DockPanel { Background = Brushes.White };
+            DockPanel.SetDock(header, Dock.Top);
+            DockPanel.SetDock(closeButton, Dock.Bottom);
+            layout.Children.Add(header);
+            layout.Children.Add(closeButton);
+            layout.Children.Add(list);
+
+            var window = new Window
+            {
+                Title = "Gestos tactiles",
+                Content = layout,
+                Width = 640,
+                Height = 540,
+                MinWidth = 560,
                 MinHeight = 420,
                 ResizeMode = ResizeMode.NoResize,
                 WindowStartupLocation = WindowStartupLocation.CenterOwner,
@@ -1062,10 +1135,10 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             });
         }
 
-        private void AddShortcutRow(Panel parent, string keys, string action)
+        private void AddShortcutRow(Panel parent, string keys, string action, double keyColumnWidth = 160)
         {
             var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(keyColumnWidth) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var keyBox = new Border
@@ -1079,7 +1152,8 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 {
                     Text = keys,
                     Foreground = new SolidColorBrush(Color.FromRgb(64, 43, 37)),
-                    FontWeight = FontWeights.SemiBold
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
                 }
             };
 
@@ -1285,7 +1359,7 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 return;
 
             e.Handled = true;
-            DispatchTouchGesture("shortcuts");
+            DispatchTouchGesture("gestures");
         }
 
         private void DispatchTouchGesture(string action)
@@ -1320,6 +1394,9 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                     break;
                 case "shortcuts":
                     ShowShortcutsDialog();
+                    break;
+                case "gestures":
+                    ShowGesturesDialog();
                     break;
             }
         }

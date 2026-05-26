@@ -50,6 +50,9 @@
                 </Border>
 
                 <StackPanel Grid.Column="2" Orientation="Horizontal">
+                    <Button x:Name="GesturesButton" ToolTip="Ver gestos tactiles" Click="Gestures_Click" Style="{StaticResource ToolbarButtonStyle}" Visibility="Collapsed">
+                        <TextBlock Text="Gestos" Foreground="White"/>
+                    </Button>
                     <Button ToolTip="Ver atajos de teclado" Click="Shortcuts_Click" Style="{StaticResource ToolbarButtonStyle}">
                         <TextBlock Text="Atajos" Foreground="White"/>
                     </Button>

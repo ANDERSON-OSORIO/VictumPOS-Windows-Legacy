@@ -68,6 +68,10 @@ namespace VictumPOS.Services
             {
                 await ProcessQueue();
             }
+            catch (Exception ex)
+            {
+                Logger.Log("No se pudo procesar la cola de impresion: " + ex.Message);
+            }
             finally
             {
                 _isProcessing = false;
@@ -99,6 +103,8 @@ namespace VictumPOS.Services
             {
                 var now = DateTime.UtcNow;
                 var jobs = LoadJobs();
+                RecoverProcessingJobs(jobs);
+
                 var selected = jobs
                     .Where(j => j.Status == "pending" && (!j.NextRunAt.HasValue || j.NextRunAt.Value <= now))
                     .OrderBy(j => j.Id)
@@ -110,6 +116,15 @@ namespace VictumPOS.Services
 
                 SaveJobs(jobs);
                 return selected;
+            }
+        }
+
+        private void RecoverProcessingJobs(List<PrintJob> jobs)
+        {
+            foreach (var job in jobs.Where(j => j.Status == "processing"))
+            {
+                job.Status = "pending";
+                job.NextRunAt = null;
             }
         }
 
@@ -162,13 +177,67 @@ namespace VictumPOS.Services
         private List<PrintJob> LoadJobs()
         {
             EnsureQueueFile();
-            var json = File.ReadAllText(_queuePath);
-            return _serializer.Deserialize<List<PrintJob>>(json) ?? new List<PrintJob>();
+            try
+            {
+                var json = File.ReadAllText(_queuePath);
+                if (string.IsNullOrWhiteSpace(json))
+                    return new List<PrintJob>();
+
+                return _serializer.Deserialize<List<PrintJob>>(json) ?? new List<PrintJob>();
+            }
+            catch (Exception ex)
+            {
+                BackupCorruptQueue(ex);
+                return new List<PrintJob>();
+            }
         }
 
         private void SaveJobs(List<PrintJob> jobs)
         {
-            File.WriteAllText(_queuePath, _serializer.Serialize(jobs));
+            EnsureQueueFile();
+            var directory = Path.GetDirectoryName(_queuePath);
+            var tempPath = Path.Combine(directory, "queue." + Guid.NewGuid().ToString("N") + ".tmp");
+
+            try
+            {
+                File.WriteAllText(tempPath, _serializer.Serialize(jobs ?? new List<PrintJob>()));
+                try
+                {
+                    File.Replace(tempPath, _queuePath, null);
+                }
+                catch
+                {
+                    File.Copy(tempPath, _queuePath, true);
+                }
+            }
+            finally
+            {
+                try
+                {
+                    if (File.Exists(tempPath))
+                        File.Delete(tempPath);
+                }
+                catch
+                {
+                }
+            }
+        }
+
+        private void BackupCorruptQueue(Exception ex)
+        {
+            try
+            {
+                var backupPath = _queuePath + ".corrupt-" + DateTime.Now.ToString("yyyyMMddHHmmss") + ".bak";
+                if (File.Exists(_queuePath))
+                    File.Copy(_queuePath, backupPath, true);
+
+                File.WriteAllText(_queuePath, "[]");
+                Logger.Log("Cola de impresion corrupta. Se reinicio queue.json y se guardo respaldo. Error: " + ex.Message);
+            }
+            catch (Exception backupEx)
+            {
+                Logger.Log("No se pudo respaldar/reiniciar queue.json corrupto: " + backupEx.Message);
+            }
         }
 
         private string GenerateHash(string content, string printer)
