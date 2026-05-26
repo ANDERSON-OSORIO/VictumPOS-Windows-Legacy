@@ -1,5 +1,5 @@
 #define MyAppName "VictumPOS"
-#define MyAppVersion "1.1.68"
+#define MyAppVersion "1.1.69"
 #define MyAppPublisher "VictumPOS"
 #define MyAppExeName "VictumPOS.exe"
 #define StageDir "..\..\artifacts\VictumPOS-win-installer"

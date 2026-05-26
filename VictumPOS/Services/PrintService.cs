@@ -36,6 +36,11 @@ namespace VictumPOS.Services
             return PrintInternal(content, printerSelector, true, logoBase64);
         }
 
+        public string DefaultPrinterSelector()
+        {
+            return _settings.GetPrintBridgeDefaultPrinter();
+        }
+
         internal Task PrintFromQueue(string content, string printerSelector)
         {
             return PrintInternal(content, printerSelector, false, null);

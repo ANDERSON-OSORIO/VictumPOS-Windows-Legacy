@@ -27,10 +27,10 @@ namespace VictumPOS.Helpers
                 if (string.IsNullOrWhiteSpace(type))
                     return;
 
-                switch (type.Trim())
+                switch (type.Trim().ToLowerInvariant())
                 {
                     case "print":
-                    case "printTicket":
+                    case "printticket":
                     case "ticket.print":
                         await HandlePrint(root, printService);
                         break;
@@ -63,9 +63,11 @@ namespace VictumPOS.Helpers
             if (string.IsNullOrWhiteSpace(content))
                 content = GetString(root, "content", "text", "body", "html", "ticket", "raw");
 
-            var printer = GetString(payload, "printer", "printerType", "printerName", "printer_name", "destination", "target", "station", "device");
+            var printer = GetString(payload, "printer", "printerSelector", "printerType", "printerName", "printer_name", "destination", "target", "station", "device");
             if (string.IsNullOrWhiteSpace(printer))
-                printer = GetString(root, "printer", "printerType", "printerName", "printer_name", "destination", "target", "station", "device");
+                printer = GetString(root, "printer", "printerSelector", "printerType", "printerName", "printer_name", "destination", "target", "station", "device");
+            if (string.IsNullOrWhiteSpace(printer))
+                printer = printService.DefaultPrinterSelector();
 
             content = NormalizeContent(content);
             if (string.IsNullOrWhiteSpace(content) || string.IsNullOrWhiteSpace(printer))
