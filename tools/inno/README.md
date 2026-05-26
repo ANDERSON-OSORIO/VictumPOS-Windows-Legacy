@@ -1,17 +1,17 @@
 # VictumPOS WPF Installer
 
-Este instalador esta pensado para Windows 7 SP1 en adelante usando .NET Framework 4.7.2.
+Este instalador esta pensado para Windows 7 SP1 en adelante usando .NET Framework 4.7.2 y CefSharp empacado dentro de la aplicacion.
 
-## Prerrequisitos opcionales incluidos
+## Prerrequisitos incluidos
 
-Coloca estos archivos en `tools\inno\prerequisites` antes de compilar el instalador:
+Coloca este archivo en `tools\inno\prerequisites` antes de compilar el instalador:
 
 - `ndp472-kb4054530-x86-x64-allos-enu.exe`
   - Instalador offline de .NET Framework 4.7.2.
-- `MicrosoftEdgeWebView2RuntimeInstallerX64.exe`
-  - Evergreen WebView2 Runtime para Windows 10+.
-- `WebView2FixedRuntime\msedgewebview2.exe`
-  - Runtime fijo WebView2 109 para Windows 7/8/8.1.
+- `vc_redist.x86.exe`
+  - Microsoft Visual C++ Redistributable x86 requerido por CefSharp.
+
+CefSharp se copia desde `VictumPOS\bin\Release` con la aplicacion. Ya no se descarga ni instala WebView2.
 
 El instalador no borra configuraciones. Los datos permanecen en:
 
@@ -39,16 +39,12 @@ El resultado queda en:
 artifacts\installer
 ```
 
-## Descargar complementos
+## Descargar prerrequisitos
 
-Puedes descargar automaticamente los instaladores disponibles con:
+Puedes descargar automaticamente los instaladores requeridos con:
 
 ```powershell
 .\tools\inno\Download-Prerequisites.ps1
 ```
 
-El runtime fijo de WebView2 109 para Windows 7/8/8.1 debe agregarse manualmente como carpeta:
-
-```text
-tools\inno\prerequisites\WebView2FixedRuntime\msedgewebview2.exe
-```
+Para Windows 7, si el `vc_redist.x86.exe` mas reciente no instala, reemplazalo por un instalador Microsoft Visual C++ 2015-2019 x86 compatible con Windows 7 y conserva el mismo nombre.

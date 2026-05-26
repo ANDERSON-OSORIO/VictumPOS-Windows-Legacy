@@ -38,6 +38,7 @@ namespace VictumPOS.Views
             KioskMode.IsChecked = _settings.IsKioskModeEnabled();
             AppAutoStart.IsChecked = _settings.IsAppAutoStartEnabled() || AppStartupService.IsEnabled();
             TouchKeyboard.IsChecked = _settings.IsTouchKeyboardEnabled();
+            TouchGestures.IsChecked = _settings.IsTouchGesturesEnabled();
             KeepScreenOn.IsChecked = _settings.IsKeepScreenOnEnabled();
             LockWebZoom.IsChecked = _settings.IsWebZoomLocked();
             ClearCacheOnStart.IsChecked = _settings.ShouldClearCacheOnStart();
@@ -82,6 +83,7 @@ namespace VictumPOS.Views
                 IsChecked(KioskMode),
                 IsChecked(AppAutoStart),
                 IsChecked(TouchKeyboard),
+                IsChecked(TouchGestures),
                 IsChecked(KeepScreenOn),
                 IsChecked(LockWebZoom),
                 IsChecked(ClearCacheOnStart),

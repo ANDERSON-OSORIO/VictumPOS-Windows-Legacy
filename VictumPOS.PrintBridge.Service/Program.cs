@@ -28,7 +28,10 @@ namespace VictumPOS.PrintBridge.Service
                     return RunSc("start", ServiceName);
 
                 if (args.Any(a => EqualsArg(a, "stop")))
-                    return RunSc("stop", ServiceName);
+                {
+                    RunSc("stop", ServiceName);
+                    return 0;
+                }
 
                 var options = BridgeOptions.FromArgs(args, DefaultPort);
                 if (args.Any(a => EqualsArg(a, "user")) || args.Any(a => EqualsArg(a, "run")))
@@ -113,7 +116,7 @@ namespace VictumPOS.PrintBridge.Service
         private static int Uninstall()
         {
             RunSc("stop", ServiceName);
-            RunScChecked("delete", ServiceName);
+            RunSc("delete", ServiceName);
             TryRunNetsh("firewall", "delete", "portopening", "TCP", DefaultPort.ToString());
             TryRunNetsh("advfirewall", "firewall", "delete", "rule", "name=VictumPOS Print Bridge");
             Console.WriteLine("Servicio removido.");

@@ -145,6 +145,7 @@ namespace VictumPOS.Services
         public bool IsKioskModeEnabled() { return LoadFull().KioskMode; }
         public bool IsAppAutoStartEnabled() { return LoadFull().AppAutoStart; }
         public bool IsTouchKeyboardEnabled() { return LoadFull().TouchKeyboardEnabled; }
+        public bool IsTouchGesturesEnabled() { return LoadFull().TouchGesturesEnabled; }
         public bool IsKeepScreenOnEnabled() { return LoadFull().KeepScreenOn; }
         public bool IsWebZoomLocked() { return LoadFull().LockWebZoom; }
         public bool ShouldClearCacheOnStart() { return LoadFull().ClearCacheOnStart; }
@@ -173,6 +174,7 @@ namespace VictumPOS.Services
             bool kioskMode,
             bool appAutoStart,
             bool touchKeyboardEnabled,
+            bool touchGesturesEnabled,
             bool keepScreenOn,
             bool lockWebZoom,
             bool clearCacheOnStart,
@@ -201,6 +203,7 @@ namespace VictumPOS.Services
             config.KioskMode = kioskMode;
             config.AppAutoStart = appAutoStart;
             config.TouchKeyboardEnabled = touchKeyboardEnabled;
+            config.TouchGesturesEnabled = touchGesturesEnabled;
             config.KeepScreenOn = keepScreenOn;
             config.LockWebZoom = lockWebZoom;
             config.ClearCacheOnStart = clearCacheOnStart;
@@ -282,7 +285,8 @@ namespace VictumPOS.Services
         public string PrintLogoPath { get; set; } = "";
         public bool KioskMode { get; set; } = true;
         public bool AppAutoStart { get; set; } = true;
-        public bool TouchKeyboardEnabled { get; set; } = false;
+        public bool TouchKeyboardEnabled { get; set; } = true;
+        public bool TouchGesturesEnabled { get; set; } = true;
         public bool KeepScreenOn { get; set; } = true;
         public bool LockWebZoom { get; set; } = true;
         public bool ClearCacheOnStart { get; set; } = false;

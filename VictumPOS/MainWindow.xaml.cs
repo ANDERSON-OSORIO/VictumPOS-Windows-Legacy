@@ -1,4 +1,5 @@
-using Microsoft.Web.WebView2.Core;
+using CefSharp;
+using CefSharp.Handler;
 using System;
 using System.Collections.Generic;
 using System.IO;
@@ -31,16 +32,38 @@ namespace VictumPOS
         private readonly DispatcherTimer _autoReloadTimer;
         private readonly DispatcherTimer _notificationTimer;
         private readonly JavaScriptSerializer _serializer = new JavaScriptSerializer();
-        private CoreWebView2Environment _webViewEnvironment;
+        private readonly object _terminalHeadersLock = new object();
+        private Dictionary<string, string> _activeTerminalHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
         private PrintService _printService;
         private string _offlineCacheFile = "";
         private bool _requestedWebNotificationPermission;
+        private bool _browserLoadedSuccessfully;
+        private Point? _touchStartPoint;
+        private DateTime _touchStartTime;
+        private readonly Dictionary<int, Point> _activeTouchPoints = new Dictionary<int, Point>();
+        private double? _lastTwoFingerAverageY;
+        private Point? _twoFingerStartPoint;
+        private DateTime _twoFingerStartTime;
+        private bool _twoFingerMoved;
+        private string _lastTouchGestureAction = "";
+        private DateTime _lastTouchGestureTime = DateTime.MinValue;
 
         public MainWindow()
         {
             InitializeComponent();
 
             _settingsService = new SettingsService();
+            webView.RequestHandler = new TerminalRequestHandler(
+                HomeHost,
+                BuildBridgeScript,
+                GetActiveTerminalHeaders,
+                url => Dispatcher.BeginInvoke(new Action(() => LoadUrlWithTerminal(url))),
+                () => Dispatcher.BeginInvoke(new Action(() =>
+                {
+                    ShowNotification("Navegador reiniciado", "Se recargara VictumPOS por estabilidad.");
+                    LoadHome();
+                })),
+                Logger.Log);
             _autoReloadTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(5) };
             _autoReloadTimer.Tick += (_, __) =>
             {
@@ -57,8 +80,13 @@ namespace VictumPOS
             Closing += (_, __) => SetThreadExecutionState(ES_CONTINUOUS);
             KeyDown += MainWindow_KeyDown;
             PreviewKeyDown += MainWindow_KeyDown;
+            webView.PreviewMouseWheel += Browser_PreviewMouseWheel;
+            webView.PreviewTouchDown += Browser_PreviewTouchDown;
+            webView.PreviewTouchMove += Browser_PreviewTouchMove;
+            webView.PreviewTouchUp += Browser_PreviewTouchUp;
 
             EnableKioskMode();
+            ApplyTouchSettings();
             ApplyKeepScreenOn();
             ApplyAppAutoStart();
             InitAsync();
@@ -85,36 +113,26 @@ namespace VictumPOS
             {
                 _printService = new PrintService();
                 _offlineCacheFile = SettingsService.ResolveDataPath("offline-cache.html");
-                ShowLoader(true);
+                ShowLoader(true, "Preparando navegador...");
 
-                var userDataFolder = SettingsService.ResolveDataDirectoryPath("WebView2");
-                _webViewEnvironment = await CoreWebView2Environment.CreateAsync(ResolveWebView2RuntimeFolder(), userDataFolder, null);
-
-                await webView.EnsureCoreWebView2Async(_webViewEnvironment);
-                webView.CoreWebView2.PermissionRequested += CoreWebView2_PermissionRequested;
-                webView.CoreWebView2.NavigationStarting += NavigationStarting;
-                webView.CoreWebView2.NavigationCompleted += NavigationCompleted;
-                webView.CoreWebView2.WebMessageReceived += WebMessageReceived;
-                webView.CoreWebView2.NewWindowRequested += CoreWebView2_NewWindowRequested;
-                webView.CoreWebView2.ServerCertificateErrorDetected += CoreWebView2_ServerCertificateErrorDetected;
-                webView.CoreWebView2.DocumentTitleChanged += CoreWebView2_DocumentTitleChanged;
-                webView.CoreWebView2.ProcessFailed += CoreWebView2_ProcessFailed;
+                SetLoadingStatus("Iniciando CefSharp...");
+                webView.IsBrowserInitializedChanged += Browser_IsBrowserInitializedChanged;
+                webView.LoadingStateChanged += Browser_LoadingStateChanged;
+                webView.TitleChanged += Browser_TitleChanged;
+                webView.LoadError += Browser_LoadError;
+                webView.JavascriptMessageReceived += Browser_JavascriptMessageReceived;
                 webView.PreviewKeyDown += MainWindow_KeyDown;
                 webView.KeyDown += MainWindow_KeyDown;
 
-                webView.CoreWebView2.Settings.UserAgent = "VictumPOS/PRO (Windows; ESC-POS Enabled)";
-                webView.CoreWebView2.Settings.IsScriptEnabled = true;
-                webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = true;
-                webView.CoreWebView2.Settings.AreDefaultScriptDialogsEnabled = true;
-                webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
-                webView.CoreWebView2.Settings.IsWebMessageEnabled = true;
-                webView.CoreWebView2.Settings.IsZoomControlEnabled = !_settingsService.IsWebZoomLocked();
-
                 if (_settingsService.ShouldClearCacheOnStart())
+                {
+                    SetLoadingStatus("Limpiando cache local...");
                     await ClearWebCacheAsync();
+                }
 
-                await webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(BuildBridgeScript());
-                LoadHome();
+                SetLoadingStatus("Abriendo VictumPOS...");
+                if (webView.IsBrowserInitialized)
+                    LoadHome();
             }
             catch (Exception ex)
             {
@@ -133,6 +151,11 @@ namespace VictumPOS
                     window.VictumTerminalName = window.VictumPOS.terminalName || '';
                     window.chrome = window.chrome || {};
                     window.chrome.webview = window.chrome.webview || {};
+                    window.chrome.webview.postMessage = function(message) {
+                        try {
+                            if (window.CefSharp && CefSharp.PostMessage) CefSharp.PostMessage(message);
+                        } catch (_) {}
+                    };
                     const original = window.Notification;
                     if (original) {
                         function HookNotification(title, options) {
@@ -169,6 +192,109 @@ namespace VictumPOS
                         e.stopPropagation();
                         chrome.webview.postMessage({ type: 'shortcut', action: action });
                     }, true);
+                    function isTextInput(el) {
+                        while (el && el !== document.documentElement) {
+                            const tag = String(el.tagName || '').toLowerCase();
+                            if (el.isContentEditable) return true;
+                            if (tag === 'textarea' || tag === 'select') return true;
+                            if (tag === 'input') {
+                                const type = String(el.type || 'text').toLowerCase();
+                                return ['button','checkbox','color','file','hidden','image','radio','range','reset','submit'].indexOf(type) < 0;
+                            }
+                            el = el.parentElement;
+                        }
+                        return false;
+                    }
+                    function showTouchKeyboard(target) {
+                        if (!isTextInput(target)) return;
+                        try { chrome.webview.postMessage({ type: 'touchKeyboard', action: 'show' }); } catch (_) {}
+                    }
+                    document.addEventListener('focusin', function(e) {
+                        setTimeout(function() { showTouchKeyboard(e.target); }, 80);
+                    }, true);
+                    document.addEventListener('touchend', function(e) {
+                        setTimeout(function() { showTouchKeyboard(e.target); }, 80);
+                    }, true);
+                    let touchStart = null;
+                    let touchStartTime = 0;
+                    let touchMoved = false;
+                    let lastTwoFingerY = null;
+                    function touchGesturesEnabled() {
+                        return !!(window.VictumPOS && window.VictumPOS.touchGesturesEnabled);
+                    }
+                    function postTouchGesture(action) {
+                        if (!touchGesturesEnabled()) return;
+                        try { chrome.webview.postMessage({ type: 'touchGesture', action: action }); } catch (_) {}
+                    }
+                    function touchList(e) {
+                        const list = [];
+                        for (let i = 0; i < e.touches.length; i++) list.push({ x: e.touches[i].clientX, y: e.touches[i].clientY });
+                        return list;
+                    }
+                    function avg(points) {
+                        let x = 0, y = 0;
+                        for (let i = 0; i < points.length; i++) { x += points[i].x; y += points[i].y; }
+                        return { x: x / Math.max(1, points.length), y: y / Math.max(1, points.length) };
+                    }
+                    function findScrollable(el) {
+                        while (el && el !== document.body && el !== document.documentElement) {
+                            const style = window.getComputedStyle(el);
+                            if (/(auto|scroll)/.test(style.overflowY || '') && el.scrollHeight > el.clientHeight) return el;
+                            el = el.parentElement;
+                        }
+                        return document.scrollingElement || document.documentElement;
+                    }
+                    document.addEventListener('touchstart', function(e) {
+                        if (!touchGesturesEnabled()) {
+                            touchStart = null;
+                            return;
+                        }
+                        touchStart = touchList(e);
+                        touchStartTime = Date.now();
+                        touchMoved = false;
+                        lastTwoFingerY = touchStart.length === 2 ? avg(touchStart).y : null;
+                    }, true);
+                    document.addEventListener('touchmove', function(e) {
+                        if (!touchGesturesEnabled()) return;
+                        if (!touchStart || e.touches.length !== 2) return;
+                        const current = avg(touchList(e));
+                        if (lastTwoFingerY === null) lastTwoFingerY = current.y;
+                        const dy = current.y - lastTwoFingerY;
+                        lastTwoFingerY = current.y;
+                        if (Math.abs(dy) < 3) return;
+                        touchMoved = true;
+                        const target = document.elementFromPoint(current.x, current.y) || document.activeElement;
+                        findScrollable(target).scrollTop += (-dy * 1.35);
+                        e.preventDefault();
+                    }, { capture: true, passive: false });
+                    document.addEventListener('touchend', function(e) {
+                        if (!touchGesturesEnabled()) {
+                            touchStart = null;
+                            return;
+                        }
+                        if (!touchStart) return;
+                        const elapsed = Date.now() - touchStartTime;
+                        const start = touchStart[0];
+                        const changed = e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
+                        if (touchStart.length === 2 && !touchMoved && elapsed < 550) {
+                            postTouchGesture('shortcuts');
+                            touchStart = null;
+                            return;
+                        }
+                        if (touchStart.length !== 1 || !changed || elapsed > 900) {
+                            touchStart = null;
+                            return;
+                        }
+                        const dx = changed.clientX - start.x;
+                        const dy = changed.clientY - start.y;
+                        if (Math.abs(dx) >= 120 && Math.abs(dx) >= Math.abs(dy) * 1.6) {
+                            postTouchGesture(dx > 0 ? 'back' : 'forward');
+                        } else if (Math.abs(dy) >= 140 && Math.abs(dy) >= Math.abs(dx) * 1.4) {
+                            if (dy > 0 && start.y <= 96) postTouchGesture('reload');
+                            else if (dy < 0 && start.y >= (window.innerHeight - 120)) postTouchGesture('home');
+                        }
+                        touchStart = null;
+                    }, true);
                 })();";
         }
 
@@ -188,7 +314,8 @@ namespace VictumPOS
                 { "printBridgeEnabled", _settingsService.IsPrintBridgeEnabled() },
                 { "printBridgeUrl", PrintBridgeUrl() },
                 { "printBridgePort", _settingsService.GetPrintBridgePort() },
-                { "printBridgeDefaultPrinter", _settingsService.GetPrintBridgeDefaultPrinter() }
+                { "printBridgeDefaultPrinter", _settingsService.GetPrintBridgeDefaultPrinter() },
+                { "touchGesturesEnabled", _settingsService.IsTouchGesturesEnabled() }
             };
 
             return _serializer.Serialize(state);
@@ -198,7 +325,7 @@ namespace VictumPOS
         {
             try
             {
-                _ = webView.CoreWebView2.ExecuteScriptAsync(
+                _ = BrowserExecuteScriptAsync(
                     "window.VictumPOS=" + TerminalStateJson() + ";window.VictumTerminalName=window.VictumPOS.terminalName||'';");
             }
             catch (Exception ex)
@@ -211,36 +338,13 @@ namespace VictumPOS
         {
             try
             {
-                webView.CoreWebView2.CookieManager.DeleteAllCookies();
-                await webView.CoreWebView2.CallDevToolsProtocolMethodAsync("Network.clearBrowserCache", "{}");
-                await webView.CoreWebView2.CallDevToolsProtocolMethodAsync("Network.clearBrowserCookies", "{}");
-                Logger.Log("Cache WebView limpiado al iniciar por configuracion");
+                await BrowserClearCacheAsync();
+                Logger.Log("Cache CefSharp limpiado al iniciar por configuracion");
             }
             catch (Exception ex)
             {
-                Logger.Log("No se pudo limpiar cache WebView: " + ex.Message);
+                Logger.Log("No se pudo limpiar cache CefSharp: " + ex.Message);
             }
-        }
-
-        private string ResolveWebView2RuntimeFolder()
-        {
-            try
-            {
-                var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-                var fixedRuntimeRoot = Path.Combine(baseDir, "WebView2FixedRuntime");
-                if (Directory.Exists(fixedRuntimeRoot) && File.Exists(Path.Combine(fixedRuntimeRoot, "msedgewebview2.exe")))
-                    return fixedRuntimeRoot;
-
-                foreach (var folder in Directory.GetDirectories(baseDir, "Microsoft.WebView2.FixedVersionRuntime.*"))
-                    if (File.Exists(Path.Combine(folder, "msedgewebview2.exe")))
-                        return folder;
-            }
-            catch (Exception ex)
-            {
-                Logger.Log("No se pudo resolver runtime fijo WebView2: " + ex.Message);
-            }
-
-            return null;
         }
 
         private void LoadHome()
@@ -248,28 +352,143 @@ namespace VictumPOS
             LoadUrlWithTerminal(HomeUrl());
         }
 
+        private bool BrowserIsReady()
+        {
+            return webView.IsBrowserInitialized && !webView.IsDisposed;
+        }
+
+        private string BrowserCurrentUrl()
+        {
+            return webView.Address ?? "";
+        }
+
+        private string BrowserDocumentTitle()
+        {
+            return webView.Title ?? "";
+        }
+
+        private bool BrowserCanGoBack()
+        {
+            return webView.CanGoBack;
+        }
+
+        private bool BrowserCanGoForward()
+        {
+            return webView.CanGoForward;
+        }
+
+        private void BrowserGoBack()
+        {
+            webView.Back();
+        }
+
+        private void BrowserGoForward()
+        {
+            webView.Forward();
+        }
+
+        private void BrowserNavigate(string url)
+        {
+            webView.LoadUrl(url);
+        }
+
+        private void BrowserNavigateWithHeaders(string url, string headers)
+        {
+            SetActiveTerminalHeaders(ParseHeaderBlock(headers));
+            BrowserNavigate(url);
+        }
+
+        private void BrowserNavigateToString(string html)
+        {
+            webView.LoadHtml(html, "http://victumpos.local/offline-cache.html");
+        }
+
+        private async Task<string> BrowserExecuteScriptAsync(string script)
+        {
+            var response = await webView.EvaluateScriptAsync(script);
+            if (!response.Success || response.Result == null)
+                return "";
+
+            return _serializer.Serialize(response.Result);
+        }
+
+        private async Task BrowserClearCacheAsync()
+        {
+            await Cef.GetGlobalCookieManager().DeleteCookiesAsync("", "");
+        }
+
+        private void BrowserSetCookie(Uri uri, string name, string value)
+        {
+            var cookie = new CefSharp.Cookie
+            {
+                Name = name,
+                Value = Uri.EscapeDataString(value ?? ""),
+                Domain = uri.Host,
+                Path = "/",
+                HttpOnly = false,
+                Secure = uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase)
+            };
+            _ = Cef.GetGlobalCookieManager().SetCookieAsync(uri.GetLeftPart(UriPartial.Authority), cookie);
+        }
+
+        private void BrowserSetInteractive(bool enabled)
+        {
+            webView.IsHitTestVisible = enabled;
+        }
+
+        private Dictionary<string, string> GetActiveTerminalHeaders()
+        {
+            lock (_terminalHeadersLock)
+                return new Dictionary<string, string>(_activeTerminalHeaders, StringComparer.OrdinalIgnoreCase);
+        }
+
+        private void SetActiveTerminalHeaders(Dictionary<string, string> headers)
+        {
+            lock (_terminalHeadersLock)
+                _activeTerminalHeaders = headers ?? new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        }
+
+        private static Dictionary<string, string> ParseHeaderBlock(string headers)
+        {
+            var result = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            if (string.IsNullOrWhiteSpace(headers))
+                return result;
+
+            var lines = headers.Split(new[] { "\r\n", "\n" }, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var line in lines)
+            {
+                var index = line.IndexOf(':');
+                if (index <= 0)
+                    continue;
+
+                var key = line.Substring(0, index).Trim();
+                var value = line.Substring(index + 1).Trim();
+                if (!string.IsNullOrWhiteSpace(key))
+                    result[key] = value;
+            }
+
+            return result;
+        }
+
         private void LoadUrlWithTerminal(string url)
         {
             try
             {
-                if (webView.CoreWebView2 == null)
+                _autoReloadTimer.Stop();
+                ShowLoader(true, "Cargando pagina...");
+
+                if (!BrowserIsReady())
                 {
-                    webView.Source = new Uri(url);
+                    BrowserNavigate(url);
                     return;
                 }
 
-                _autoReloadTimer.Stop();
-                ShowLoader(true);
                 ApplyTerminalCookies();
 
-                if (IsTrustedUrl(url) && _webViewEnvironment != null)
-                {
-                    var request = _webViewEnvironment.CreateWebResourceRequest(url, "GET", null, TerminalHeaders());
-                    webView.CoreWebView2.NavigateWithWebResourceRequest(request);
-                    return;
-                }
-
-                webView.CoreWebView2.Navigate(url);
+                if (IsTrustedUrl(url))
+                    BrowserNavigateWithHeaders(url, TerminalHeaders());
+                else
+                    BrowserNavigate(url);
             }
             catch (Exception ex)
             {
@@ -342,11 +561,7 @@ namespace VictumPOS
 
         private void SetTerminalCookie(Uri uri, string name, string value)
         {
-            var manager = webView.CoreWebView2.CookieManager;
-            var cookie = manager.CreateCookie(name, Uri.EscapeDataString(value ?? ""), uri.Host, "/");
-            cookie.IsHttpOnly = false;
-            cookie.IsSecure = uri.Scheme.Equals("https", StringComparison.OrdinalIgnoreCase);
-            manager.AddOrUpdateCookie(cookie);
+            BrowserSetCookie(uri, name, value);
         }
 
         private string HomeUrl() { return _settingsService.GetSystemUrl(); }
@@ -383,57 +598,6 @@ namespace VictumPOS
             return (value ?? "").Replace('\n', ' ').Replace('\r', ' ').Trim();
         }
 
-        private void CoreWebView2_NewWindowRequested(object sender, CoreWebView2NewWindowRequestedEventArgs e)
-        {
-            e.Handled = true;
-            if (!string.IsNullOrWhiteSpace(e.Uri))
-                LoadUrlWithTerminal(e.Uri);
-        }
-
-        private void CoreWebView2_ServerCertificateErrorDetected(object sender, CoreWebView2ServerCertificateErrorDetectedEventArgs e)
-        {
-            try
-            {
-                Uri requestUri;
-                if (Uri.TryCreate(e.RequestUri, UriKind.Absolute, out requestUri) &&
-                    string.Equals(HomeHost(), requestUri.Host, StringComparison.OrdinalIgnoreCase))
-                {
-                    Logger.Log("Certificado aceptado para " + requestUri.Host + ". Error: " + e.ErrorStatus);
-                    e.Action = CoreWebView2ServerCertificateErrorAction.AlwaysAllow;
-                }
-            }
-            catch (Exception ex)
-            {
-                Logger.Log("Error manejando certificado: " + ex.Message);
-            }
-        }
-
-        private void CoreWebView2_DocumentTitleChanged(object sender, object e)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                var title = webView.CoreWebView2.DocumentTitle;
-                UrlText.Text = string.IsNullOrWhiteSpace(title) ? "VictumPOS" : title;
-            });
-        }
-
-        private void CoreWebView2_PermissionRequested(object sender, CoreWebView2PermissionRequestedEventArgs e)
-        {
-            if (e.PermissionKind == CoreWebView2PermissionKind.Notifications ||
-                e.PermissionKind == CoreWebView2PermissionKind.Geolocation)
-            {
-                e.State = CoreWebView2PermissionState.Allow;
-                e.Handled = true;
-            }
-        }
-
-        private void CoreWebView2_ProcessFailed(object sender, CoreWebView2ProcessFailedEventArgs e)
-        {
-            Logger.Log("Proceso WebView2 fallo: " + e.ProcessFailedKind);
-            ShowNotification("WebView reiniciado", "Se recargara VictumPOS por estabilidad.");
-            LoadHome();
-        }
-
         private void EnableKioskMode()
         {
             if (_settingsService.IsKioskModeEnabled())
@@ -445,8 +609,10 @@ namespace VictumPOS
             }
             else
             {
+                WindowState = WindowState.Normal;
                 WindowStyle = WindowStyle.SingleBorderWindow;
                 ResizeMode = ResizeMode.CanResize;
+                WindowState = WindowState.Maximized;
                 Topmost = false;
             }
         }
@@ -459,68 +625,118 @@ namespace VictumPOS
                 SetThreadExecutionState(ES_CONTINUOUS);
         }
 
+        private void ApplyTouchSettings()
+        {
+            try
+            {
+                var enabled = _settingsService.IsTouchGesturesEnabled();
+                webView.IsManipulationEnabled = enabled;
+                Stylus.SetIsPressAndHoldEnabled(webView, !enabled);
+                Stylus.SetIsFlicksEnabled(webView, false);
+                Stylus.SetIsTapFeedbackEnabled(webView, !enabled);
+                Stylus.SetIsTouchFeedbackEnabled(webView, !enabled);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("No se pudo aplicar configuracion tactil: " + ex.Message);
+            }
+        }
+
         private void ApplyAppAutoStart()
         {
             AppStartupService.Apply(_settingsService.IsAppAutoStartEnabled());
         }
 
-        private void NavigationStarting(object sender, CoreWebView2NavigationStartingEventArgs args)
+        private void Browser_IsBrowserInitializedChanged(object sender, DependencyPropertyChangedEventArgs e)
         {
-            ShowLoader(true);
+            if (webView.IsBrowserInitialized)
+                LoadHome();
         }
 
-        private void NavigationCompleted(object sender, CoreWebView2NavigationCompletedEventArgs args)
+        private void Browser_LoadingStateChanged(object sender, LoadingStateChangedEventArgs e)
         {
-            ShowLoader(false);
-
-            try
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-                UrlText.Text = webView.CoreWebView2.DocumentTitle ?? "";
-                InjectTerminalState();
-                RequestWebNotificationPermission();
-
-                if (args.IsSuccess)
+                if (e.IsLoading)
                 {
-                    _ = SaveOfflineSnapshotAsync();
+                    _browserLoadedSuccessfully = true;
+                    ShowLoader(true, "Conectando...");
                     return;
                 }
 
-                Logger.Log("Navigation error status: " + args.WebErrorStatus);
-                TryLoadOfflineCache();
-                ScheduleAutoReload();
-            }
-            catch
+                ShowLoader(false);
+
+                try
+                {
+                    UrlText.Text = BrowserDocumentTitle() ?? "";
+                    _ = BrowserExecuteScriptAsync(BuildBridgeScript());
+                    InjectTerminalState();
+                    RequestWebNotificationPermission();
+
+                    if (_browserLoadedSuccessfully)
+                    {
+                        _ = SaveOfflineSnapshotAsync();
+                        return;
+                    }
+
+                    TryLoadOfflineCache();
+                    ScheduleAutoReload();
+                }
+                catch
+                {
+                }
+            }));
+        }
+
+        private void Browser_TitleChanged(object sender, DependencyPropertyChangedEventArgs e)
+        {
+            Dispatcher.BeginInvoke(new Action(() =>
             {
-            }
+                var title = BrowserDocumentTitle();
+                UrlText.Text = string.IsNullOrWhiteSpace(title) ? "VictumPOS" : title;
+            }));
+        }
+
+        private void Browser_LoadError(object sender, LoadErrorEventArgs e)
+        {
+            if (e.ErrorCode == CefErrorCode.Aborted)
+                return;
+
+            _browserLoadedSuccessfully = false;
+            Logger.Log("CefSharp navigation error: " + e.ErrorCode + " " + e.ErrorText + " URL: " + e.FailedUrl);
         }
 
         private void RequestWebNotificationPermission()
         {
-            if (_requestedWebNotificationPermission || webView.CoreWebView2 == null)
+            if (_requestedWebNotificationPermission || !BrowserIsReady())
                 return;
 
-            if (!IsTrustedUrl(webView.Source == null ? "" : webView.Source.ToString()))
+            if (!IsTrustedUrl(BrowserCurrentUrl()))
                 return;
 
             _requestedWebNotificationPermission = true;
-            _ = webView.CoreWebView2.ExecuteScriptAsync(
+            _ = BrowserExecuteScriptAsync(
                 "setTimeout(function(){ if(window.VictumPOS && window.VictumPOS.requestNotificationPermission) window.VictumPOS.requestNotificationPermission(); }, 1000);");
         }
 
-        private async void WebMessageReceived(object sender, CoreWebView2WebMessageReceivedEventArgs e)
+        private async void Browser_JavascriptMessageReceived(object sender, JavascriptMessageReceivedEventArgs e)
         {
             try
             {
                 if (_printService == null)
                     return;
 
-                if (TryHandleBrowserNotificationMessage(e.WebMessageAsJson))
+                var json = e.Message is string
+                    ? (string)e.Message
+                    : _serializer.Serialize(e.Message);
+
+                if (TryHandleBrowserNotificationMessage(json))
                     return;
 
-                if (TryHandleShellMessage(e.WebMessageAsJson))
+                if (TryHandleShellMessage(json))
                     return;
 
-                await WebViewBridge.HandleMessage(e.WebMessageAsJson, _printService);
+                await WebViewBridge.HandleMessage(json, _printService);
             }
             catch (Exception ex)
             {
@@ -533,12 +749,30 @@ namespace VictumPOS
         {
             Dictionary<string, object> root;
             string type;
-            if (!WebViewBridge.TryReadType(json, out root, out type) ||
-                !string.Equals(type, "shortcut", StringComparison.OrdinalIgnoreCase))
+            if (!WebViewBridge.TryReadType(json, out root, out type))
                 return false;
 
-            HandleShortcut(WebViewBridge.GetString(root, "action"));
-            return true;
+            if (string.Equals(type, "shortcut", StringComparison.OrdinalIgnoreCase))
+            {
+                HandleShortcut(WebViewBridge.GetString(root, "action"));
+                return true;
+            }
+
+            if (string.Equals(type, "touchKeyboard", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_settingsService.IsTouchKeyboardEnabled())
+                    TouchKeyboardService.Show();
+                return true;
+            }
+
+            if (string.Equals(type, "touchGesture", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_settingsService.IsTouchGesturesEnabled())
+                    DispatchTouchGesture(WebViewBridge.GetString(root, "action"));
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryHandleBrowserNotificationMessage(string json)
@@ -573,10 +807,10 @@ namespace VictumPOS
         {
             try
             {
-                if (webView.CoreWebView2 == null || !IsTrustedUrl(webView.Source == null ? "" : webView.Source.ToString()))
+                if (!BrowserIsReady() || !IsTrustedUrl(BrowserCurrentUrl()))
                     return;
 
-                var htmlJson = await webView.CoreWebView2.ExecuteScriptAsync("document.documentElement.outerHTML");
+                var htmlJson = await BrowserExecuteScriptAsync("document.documentElement.outerHTML");
                 var html = _serializer.Deserialize<string>(htmlJson) ?? "";
                 if (string.IsNullOrWhiteSpace(html))
                     return;
@@ -612,7 +846,7 @@ namespace VictumPOS
                     return;
                 }
 
-                webView.CoreWebView2.Navigate(new Uri(_offlineCacheFile).AbsoluteUri);
+                BrowserNavigate(new Uri(_offlineCacheFile).AbsoluteUri);
             }
             catch (Exception ex)
             {
@@ -637,7 +871,7 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
 </style></head><body><main class='card'><h1>Sin conexion a internet</h1><p>No se pudo abrir Victum POS en linea. Reintenta la conexion o carga la ultima version guardada en este equipo.</p><div class='actions'>
 <button class='primary' onclick=""window.chrome.webview.postMessage({ type: 'offlineRetry' });"">Reintentar</button>" + cacheButton + "</div></main></body></html>";
 
-            webView.NavigateToString(html);
+            BrowserNavigateToString(html);
         }
 
         private void ScheduleAutoReload()
@@ -651,8 +885,8 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
 
         private void Back_Click(object sender, RoutedEventArgs e)
         {
-            if (webView.CanGoBack)
-                webView.GoBack();
+            if (BrowserCanGoBack())
+                BrowserGoBack();
         }
 
         private void Home_Click(object sender, RoutedEventArgs e)
@@ -662,7 +896,7 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
 
         private void Reload_Click(object sender, RoutedEventArgs e)
         {
-            var current = webView.Source == null ? "" : webView.Source.ToString();
+            var current = BrowserCurrentUrl();
             if (string.IsNullOrWhiteSpace(current) ||
                 (!current.StartsWith("http://", StringComparison.OrdinalIgnoreCase) &&
                  !current.StartsWith("https://", StringComparison.OrdinalIgnoreCase)))
@@ -696,6 +930,17 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 Height = 760
             };
             ShowOwnedWindow(window);
+            ApplyRuntimeSettings();
+        }
+
+        private void ApplyRuntimeSettings()
+        {
+            EnableKioskMode();
+            ApplyTouchSettings();
+            ApplyKeepScreenOn();
+            ApplyAppAutoStart();
+            ApplyTerminalCookies();
+            InjectTerminalState();
         }
 
         private void ShowOwnedWindow(Window window)
@@ -753,6 +998,17 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             AddShortcutRow(list, "Ctrl + /", "Ver atajos");
             AddShortcutRow(list, "Ctrl + Q", "Salir");
 
+            if (_settingsService.IsTouchGesturesEnabled())
+            {
+                AddShortcutSection(list, "Gestos tactiles");
+                AddShortcutRow(list, "Deslizar derecha", "Atras");
+                AddShortcutRow(list, "Deslizar izquierda", "Adelante");
+                AddShortcutRow(list, "Dos dedos vertical", "Scroll");
+                AddShortcutRow(list, "Dos dedos toque", "Ver atajos");
+                AddShortcutRow(list, "Desde arriba abajo", "Actualizar");
+                AddShortcutRow(list, "Desde abajo arriba", "Inicio");
+            }
+
             var closeButton = new Button
             {
                 Width = 120,
@@ -774,7 +1030,7 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 Title = "Atajos de teclado",
                 Content = layout,
                 Width = 480,
-                Height = 540,
+                Height = _settingsService.IsTouchGesturesEnabled() ? 690 : 540,
                 MinWidth = 420,
                 MinHeight = 420,
                 ResizeMode = ResizeMode.NoResize,
@@ -792,6 +1048,18 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 window.Focus();
             };
             window.ShowDialog();
+        }
+
+        private void AddShortcutSection(Panel parent, string title)
+        {
+            parent.Children.Add(new TextBlock
+            {
+                Text = title,
+                FontSize = 17,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(64, 43, 37)),
+                Margin = new Thickness(0, 12, 0, 10)
+            });
         }
 
         private void AddShortcutRow(Panel parent, string keys, string action)
@@ -861,12 +1129,241 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             else if (key == Key.OemComma && ctrl) action = "config";
             else if (key == Key.OemQuestion && ctrl) action = "shortcuts";
             else if (key == Key.Q && ctrl) action = "exit";
+            else if (_settingsService.IsWebZoomLocked() && ctrl &&
+                     (key == Key.Add || key == Key.Subtract || key == Key.OemPlus ||
+                      key == Key.OemMinus || key == Key.D0 || key == Key.NumPad0))
+            {
+                e.Handled = true;
+                ResetBrowserZoom();
+                return;
+            }
 
             if (string.IsNullOrWhiteSpace(action))
                 return;
 
             e.Handled = true;
             HandleShortcut(action);
+        }
+
+        private void Browser_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (!_settingsService.IsWebZoomLocked())
+                return;
+
+            if ((Keyboard.Modifiers & ModifierKeys.Control) != ModifierKeys.Control)
+                return;
+
+            e.Handled = true;
+            ResetBrowserZoom();
+        }
+
+        private void ResetBrowserZoom()
+        {
+            try
+            {
+                if (BrowserIsReady())
+                    webView.GetBrowserHost()?.SetZoomLevel(0);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("No se pudo restablecer zoom: " + ex.Message);
+            }
+        }
+
+        private void Browser_PreviewTouchDown(object sender, TouchEventArgs e)
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            _activeTouchPoints[e.TouchDevice.Id] = e.GetTouchPoint(webView).Position;
+
+            if (_activeTouchPoints.Count == 1)
+            {
+                _touchStartPoint = e.GetTouchPoint(this).Position;
+                _touchStartTime = DateTime.UtcNow;
+                _lastTwoFingerAverageY = null;
+                return;
+            }
+
+            _touchStartPoint = null;
+            _lastTwoFingerAverageY = AverageTouchY();
+            if (_activeTouchPoints.Count == 2)
+            {
+                _twoFingerStartPoint = AverageTouchPoint();
+                _twoFingerStartTime = DateTime.UtcNow;
+                _twoFingerMoved = false;
+            }
+        }
+
+        private void Browser_PreviewTouchMove(object sender, TouchEventArgs e)
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            _activeTouchPoints[e.TouchDevice.Id] = e.GetTouchPoint(webView).Position;
+            if (_activeTouchPoints.Count < 2)
+                return;
+
+            var average = AverageTouchPoint();
+            if (!_lastTwoFingerAverageY.HasValue)
+            {
+                _lastTwoFingerAverageY = average.Y;
+                return;
+            }
+
+            var deltaY = average.Y - _lastTwoFingerAverageY.Value;
+            _lastTwoFingerAverageY = average.Y;
+            if (Math.Abs(deltaY) < 3)
+                return;
+
+            _twoFingerMoved = true;
+            e.Handled = true;
+            ScrollBrowserAtPoint((int)Math.Round(average.X), (int)Math.Round(average.Y), (int)Math.Round(-deltaY * 1.35));
+        }
+
+        private void Browser_PreviewTouchUp(object sender, TouchEventArgs e)
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            var wasTwoFingerGesture = _activeTouchPoints.Count >= 2;
+            var isSingleFingerGesture = _activeTouchPoints.Count <= 1 && _touchStartPoint.HasValue;
+            _activeTouchPoints.Remove(e.TouchDevice.Id);
+            if (_activeTouchPoints.Count < 2)
+            {
+                _lastTwoFingerAverageY = null;
+                if (wasTwoFingerGesture)
+                    HandleTwoFingerTap(e);
+                _twoFingerStartPoint = null;
+            }
+
+            if (!isSingleFingerGesture)
+                return;
+
+            var end = e.GetTouchPoint(this).Position;
+            var start = _touchStartPoint.Value;
+            _touchStartPoint = null;
+
+            if ((DateTime.UtcNow - _touchStartTime).TotalMilliseconds > 900)
+                return;
+
+            var deltaX = end.X - start.X;
+            var deltaY = end.Y - start.Y;
+            if (Math.Abs(deltaX) >= 120 && Math.Abs(deltaX) >= Math.Abs(deltaY) * 1.6)
+            {
+                e.Handled = true;
+                if (deltaX > 0 && BrowserCanGoBack())
+                    DispatchTouchGesture("back");
+                else if (deltaX < 0 && BrowserCanGoForward())
+                    DispatchTouchGesture("forward");
+                return;
+            }
+
+            if (Math.Abs(deltaY) >= 140 && Math.Abs(deltaY) >= Math.Abs(deltaX) * 1.4)
+            {
+                var startedNearTop = start.Y <= 96;
+                var startedNearBottom = start.Y >= Math.Max(0, ActualHeight - 120);
+                if (deltaY > 0 && startedNearTop)
+                {
+                    e.Handled = true;
+                    DispatchTouchGesture("reload");
+                }
+                else if (deltaY < 0 && startedNearBottom)
+                {
+                    e.Handled = true;
+                    DispatchTouchGesture("home");
+                }
+            }
+        }
+
+        private void HandleTwoFingerTap(TouchEventArgs e)
+        {
+            if (!_twoFingerStartPoint.HasValue || _twoFingerMoved)
+                return;
+
+            if ((DateTime.UtcNow - _twoFingerStartTime).TotalMilliseconds > 550)
+                return;
+
+            e.Handled = true;
+            DispatchTouchGesture("shortcuts");
+        }
+
+        private void DispatchTouchGesture(string action)
+        {
+            action = (action ?? "").Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(action))
+                return;
+
+            var now = DateTime.UtcNow;
+            if (string.Equals(_lastTouchGestureAction, action, StringComparison.OrdinalIgnoreCase) &&
+                (now - _lastTouchGestureTime).TotalMilliseconds < 450)
+                return;
+
+            _lastTouchGestureAction = action;
+            _lastTouchGestureTime = now;
+
+            switch (action)
+            {
+                case "back":
+                    if (BrowserCanGoBack())
+                        BrowserGoBack();
+                    break;
+                case "forward":
+                    if (BrowserCanGoForward())
+                        BrowserGoForward();
+                    break;
+                case "reload":
+                    Reload_Click(this, new RoutedEventArgs());
+                    break;
+                case "home":
+                    Home_Click(this, new RoutedEventArgs());
+                    break;
+                case "shortcuts":
+                    ShowShortcutsDialog();
+                    break;
+            }
+        }
+
+        private Point AverageTouchPoint()
+        {
+            double x = 0;
+            double y = 0;
+            foreach (var point in _activeTouchPoints.Values)
+            {
+                x += point.X;
+                y += point.Y;
+            }
+
+            var count = Math.Max(1, _activeTouchPoints.Count);
+            return new Point(x / count, y / count);
+        }
+
+        private double AverageTouchY()
+        {
+            return AverageTouchPoint().Y;
+        }
+
+        private void ScrollBrowserAtPoint(int x, int y, int deltaY)
+        {
+            if (!BrowserIsReady() || deltaY == 0)
+                return;
+
+            var script = @"
+(function(x, y, deltaY) {
+  var el = document.elementFromPoint(x, y) || document.activeElement || document.scrollingElement || document.documentElement;
+  function findScrollable(node) {
+    while (node && node !== document.body && node !== document.documentElement) {
+      var style = window.getComputedStyle(node);
+      var canScroll = /(auto|scroll)/.test(style.overflowY || '') && node.scrollHeight > node.clientHeight;
+      if (canScroll) return node;
+      node = node.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+  findScrollable(el).scrollTop += deltaY;
+})(" + x + "," + y + "," + deltaY + ");";
+
+            _ = BrowserExecuteScriptAsync(script);
         }
 
         private void HandleShortcut(string action)
@@ -877,8 +1374,8 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                     Back_Click(this, new RoutedEventArgs());
                     break;
                 case "forward":
-                    if (webView.CanGoForward)
-                        webView.GoForward();
+                    if (BrowserCanGoForward())
+                        BrowserGoForward();
                     break;
                 case "home":
                     Home_Click(this, new RoutedEventArgs());
@@ -901,9 +1398,18 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             }
         }
 
-        private void ShowLoader(bool show)
+        private void ShowLoader(bool show, string status = null)
         {
+            if (!string.IsNullOrWhiteSpace(status))
+                SetLoadingStatus(status);
+
             LoadingOverlay.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+            BrowserSetInteractive(!show);
+        }
+
+        private void SetLoadingStatus(string status)
+        {
+            LoadingStatusText.Text = string.IsNullOrWhiteSpace(status) ? "Cargando..." : status;
         }
 
         private void ShowError(string message)
@@ -956,6 +1462,140 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                     Logger.Log("No se pudo traer la ventana al frente: " + ex.Message);
                 }
             });
+        }
+
+        private class TerminalRequestHandler : RequestHandler
+        {
+            private readonly Func<string> _homeHost;
+            private readonly Func<string> _bridgeScript;
+            private readonly Action<string> _openUrl;
+            private readonly Action _recoverBrowser;
+            private readonly Action<string> _log;
+            private readonly IResourceRequestHandler _resourceRequestHandler;
+
+            public TerminalRequestHandler(
+                Func<string> homeHost,
+                Func<string> bridgeScript,
+                Func<Dictionary<string, string>> headers,
+                Action<string> openUrl,
+                Action recoverBrowser,
+                Action<string> log)
+            {
+                _homeHost = homeHost;
+                _bridgeScript = bridgeScript;
+                _openUrl = openUrl;
+                _recoverBrowser = recoverBrowser;
+                _log = log;
+                _resourceRequestHandler = new TerminalResourceRequestHandler(headers);
+            }
+
+            protected override IResourceRequestHandler GetResourceRequestHandler(
+                IWebBrowser chromiumWebBrowser,
+                IBrowser browser,
+                IFrame frame,
+                IRequest request,
+                bool isNavigation,
+                bool isDownload,
+                string requestInitiator,
+                ref bool disableDefaultHandling)
+            {
+                return IsTrustedUrl(request.Url) ? _resourceRequestHandler : null;
+            }
+
+            protected override bool OnOpenUrlFromTab(
+                IWebBrowser chromiumWebBrowser,
+                IBrowser browser,
+                IFrame frame,
+                string targetUrl,
+                WindowOpenDisposition targetDisposition,
+                bool userGesture)
+            {
+                if (string.IsNullOrWhiteSpace(targetUrl))
+                    return false;
+
+                _openUrl(targetUrl);
+                return true;
+            }
+
+            protected override bool OnCertificateError(
+                IWebBrowser chromiumWebBrowser,
+                IBrowser browser,
+                CefErrorCode errorCode,
+                string requestUrl,
+                ISslInfo sslInfo,
+                IRequestCallback callback)
+            {
+                if (IsTrustedUrl(requestUrl))
+                {
+                    _log("Certificado aceptado para " + requestUrl + ". Error: " + errorCode);
+                    using (callback)
+                    {
+                        if (!callback.IsDisposed)
+                            callback.Continue(true);
+                    }
+                    return true;
+                }
+
+                callback.Dispose();
+                return false;
+            }
+
+            protected override void OnDocumentAvailableInMainFrame(IWebBrowser chromiumWebBrowser, IBrowser browser)
+            {
+                try
+                {
+                    using (var frame = browser.MainFrame)
+                    {
+                        frame.ExecuteJavaScriptAsync(_bridgeScript());
+                    }
+                }
+                catch (Exception ex)
+                {
+                    _log("No se pudo inyectar bridge CefSharp temprano: " + ex.Message);
+                }
+            }
+
+            protected override void OnRenderProcessTerminated(
+                IWebBrowser chromiumWebBrowser,
+                IBrowser browser,
+                CefTerminationStatus status)
+            {
+                _log("Proceso CefSharp fallo: " + status);
+                _recoverBrowser();
+            }
+
+            private bool IsTrustedUrl(string url)
+            {
+                Uri uri;
+                return Uri.TryCreate(url, UriKind.Absolute, out uri) &&
+                    string.Equals(uri.Host, _homeHost(), StringComparison.OrdinalIgnoreCase);
+            }
+        }
+
+        private class TerminalResourceRequestHandler : ResourceRequestHandler
+        {
+            private readonly Func<Dictionary<string, string>> _headers;
+
+            public TerminalResourceRequestHandler(Func<Dictionary<string, string>> headers)
+            {
+                _headers = headers;
+            }
+
+            protected override CefReturnValue OnBeforeResourceLoad(
+                IWebBrowser chromiumWebBrowser,
+                IBrowser browser,
+                IFrame frame,
+                IRequest request,
+                IRequestCallback callback)
+            {
+                if (!request.IsReadOnly)
+                {
+                    foreach (var header in _headers())
+                        request.SetHeaderByName(header.Key, header.Value, true);
+                }
+
+                return CefReturnValue.Continue;
+            }
         }
     }
 }

@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:d="http://schemas.microsoft.com/expression/blend/2008"
         xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006"
-        xmlns:wv2="clr-namespace:Microsoft.Web.WebView2.Wpf;assembly=Microsoft.Web.WebView2.Wpf"
+        xmlns:cef="clr-namespace:CefSharp.Wpf;assembly=CefSharp.Wpf"
         mc:Ignorable="d"
         Title="VictumPOS"
         Icon="favicon.ico"
@@ -80,19 +80,36 @@
         </Border>
 
         <Grid Grid.Row="2">
-            <wv2:WebView2 x:Name="webView"/>
+            <cef:ChromiumWebBrowser x:Name="webView" IsHitTestVisible="False"/>
 
-            <Grid x:Name="LoadingOverlay" Background="#76071316" Visibility="Collapsed">
+            <Grid x:Name="LoadingOverlay"
+                  Background="#76071316"
+                  Visibility="Collapsed">
                 <Border HorizontalAlignment="Center"
                         VerticalAlignment="Center"
                         Background="White"
-                        CornerRadius="8"
+                        CornerRadius="18"
                         Padding="22,16">
                     <StackPanel Orientation="Horizontal">
-                        <ProgressBar Width="120" Height="18" IsIndeterminate="True" Margin="0,0,14,0"/>
+                        <ProgressBar Width="72"
+                                     Height="8"
+                                     VerticalAlignment="Center"
+                                     IsIndeterminate="True"
+                                     Foreground="{StaticResource SecondaryBrush}"
+                                     Background="#E2E8F0"
+                                     Margin="0,0,14,0"/>
+
                         <StackPanel>
-                            <TextBlock Text="Cargando VictumPOS" FontSize="16" FontWeight="SemiBold"/>
-                            <TextBlock Text="Sincronizando informacion..." Foreground="{StaticResource AppMutedTextBrush}" FontSize="12"/>
+                            <TextBlock Text="Cargando VictumPOS"
+                                       Foreground="#1F2933"
+                                       FontSize="16"
+                                       FontWeight="SemiBold"/>
+
+                            <TextBlock x:Name="LoadingStatusText"
+                                       Text="Sincronizando informacion..."
+                                       Foreground="#5D6978"
+                                       FontSize="12"
+                                       Margin="0,2,0,0"/>
                         </StackPanel>
                     </StackPanel>
                 </Border>
