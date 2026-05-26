@@ -55,6 +55,7 @@
                                 <CheckBox x:Name="KioskMode" Content="Modo kiosko / pantalla completa" Margin="0,6"/>
                                 <CheckBox x:Name="AppAutoStart" Content="Abrir VictumPOS al iniciar Windows" Margin="0,6"/>
                                 <CheckBox x:Name="TouchKeyboard" Content="Teclado tactil en campos" Margin="0,6"/>
+                                <CheckBox x:Name="TouchGestures" Content="Gestos tactiles" Margin="0,6"/>
                                 <CheckBox x:Name="KeepScreenOn" Content="Mantener pantalla encendida" Margin="0,6"/>
                                 <CheckBox x:Name="LockWebZoom" Content="Bloquear zoom accidental en la web" Margin="0,6"/>
                                 <CheckBox x:Name="ClearCacheOnStart" Content="Limpiar cache web al iniciar" Margin="0,6"/>

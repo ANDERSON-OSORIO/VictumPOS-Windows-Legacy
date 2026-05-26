@@ -35,6 +35,15 @@ namespace VictumPOS
         private PrintService _printService;
         private string _offlineCacheFile = "";
         private bool _requestedWebNotificationPermission;
+        private Point? _touchStartPoint;
+        private DateTime _touchStartTime;
+        private readonly Dictionary<int, Point> _activeTouchPoints = new Dictionary<int, Point>();
+        private double? _lastTwoFingerAverageY;
+        private Point? _twoFingerStartPoint;
+        private DateTime _twoFingerStartTime;
+        private bool _twoFingerMoved;
+        private string _lastTouchGestureAction = "";
+        private DateTime _lastTouchGestureTime = DateTime.MinValue;
 
         public MainWindow()
         {
@@ -57,8 +66,13 @@ namespace VictumPOS
             Closing += (_, __) => SetThreadExecutionState(ES_CONTINUOUS);
             KeyDown += MainWindow_KeyDown;
             PreviewKeyDown += MainWindow_KeyDown;
+            webView.PreviewMouseWheel += Browser_PreviewMouseWheel;
+            webView.PreviewTouchDown += Browser_PreviewTouchDown;
+            webView.PreviewTouchMove += Browser_PreviewTouchMove;
+            webView.PreviewTouchUp += Browser_PreviewTouchUp;
 
             EnableKioskMode();
+            ApplyTouchSettings();
             ApplyKeepScreenOn();
             ApplyAppAutoStart();
             InitAsync();
@@ -169,6 +183,109 @@ namespace VictumPOS
                         e.stopPropagation();
                         chrome.webview.postMessage({ type: 'shortcut', action: action });
                     }, true);
+                    function isTextInput(el) {
+                        while (el && el !== document.documentElement) {
+                            const tag = String(el.tagName || '').toLowerCase();
+                            if (el.isContentEditable) return true;
+                            if (tag === 'textarea' || tag === 'select') return true;
+                            if (tag === 'input') {
+                                const type = String(el.type || 'text').toLowerCase();
+                                return ['button','checkbox','color','file','hidden','image','radio','range','reset','submit'].indexOf(type) < 0;
+                            }
+                            el = el.parentElement;
+                        }
+                        return false;
+                    }
+                    function showTouchKeyboard(target) {
+                        if (!isTextInput(target)) return;
+                        try { chrome.webview.postMessage({ type: 'touchKeyboard', action: 'show' }); } catch (_) {}
+                    }
+                    document.addEventListener('focusin', function(e) {
+                        setTimeout(function() { showTouchKeyboard(e.target); }, 80);
+                    }, true);
+                    document.addEventListener('touchend', function(e) {
+                        setTimeout(function() { showTouchKeyboard(e.target); }, 80);
+                    }, true);
+                    let touchStart = null;
+                    let touchStartTime = 0;
+                    let touchMoved = false;
+                    let lastTwoFingerY = null;
+                    function touchGesturesEnabled() {
+                        return !!(window.VictumPOS && window.VictumPOS.touchGesturesEnabled);
+                    }
+                    function postTouchGesture(action) {
+                        if (!touchGesturesEnabled()) return;
+                        try { chrome.webview.postMessage({ type: 'touchGesture', action: action }); } catch (_) {}
+                    }
+                    function touchList(e) {
+                        const list = [];
+                        for (let i = 0; i < e.touches.length; i++) list.push({ x: e.touches[i].clientX, y: e.touches[i].clientY });
+                        return list;
+                    }
+                    function avg(points) {
+                        let x = 0, y = 0;
+                        for (let i = 0; i < points.length; i++) { x += points[i].x; y += points[i].y; }
+                        return { x: x / Math.max(1, points.length), y: y / Math.max(1, points.length) };
+                    }
+                    function findScrollable(el) {
+                        while (el && el !== document.body && el !== document.documentElement) {
+                            const style = window.getComputedStyle(el);
+                            if (/(auto|scroll)/.test(style.overflowY || '') && el.scrollHeight > el.clientHeight) return el;
+                            el = el.parentElement;
+                        }
+                        return document.scrollingElement || document.documentElement;
+                    }
+                    document.addEventListener('touchstart', function(e) {
+                        if (!touchGesturesEnabled()) {
+                            touchStart = null;
+                            return;
+                        }
+                        touchStart = touchList(e);
+                        touchStartTime = Date.now();
+                        touchMoved = false;
+                        lastTwoFingerY = touchStart.length === 2 ? avg(touchStart).y : null;
+                    }, true);
+                    document.addEventListener('touchmove', function(e) {
+                        if (!touchGesturesEnabled()) return;
+                        if (!touchStart || e.touches.length !== 2) return;
+                        const current = avg(touchList(e));
+                        if (lastTwoFingerY === null) lastTwoFingerY = current.y;
+                        const dy = current.y - lastTwoFingerY;
+                        lastTwoFingerY = current.y;
+                        if (Math.abs(dy) < 3) return;
+                        touchMoved = true;
+                        const target = document.elementFromPoint(current.x, current.y) || document.activeElement;
+                        findScrollable(target).scrollTop += (-dy * 1.35);
+                        e.preventDefault();
+                    }, { capture: true, passive: false });
+                    document.addEventListener('touchend', function(e) {
+                        if (!touchGesturesEnabled()) {
+                            touchStart = null;
+                            return;
+                        }
+                        if (!touchStart) return;
+                        const elapsed = Date.now() - touchStartTime;
+                        const start = touchStart[0];
+                        const changed = e.changedTouches && e.changedTouches.length ? e.changedTouches[0] : null;
+                        if (touchStart.length === 2 && !touchMoved && elapsed < 550) {
+                            postTouchGesture('gestures');
+                            touchStart = null;
+                            return;
+                        }
+                        if (touchStart.length !== 1 || !changed || elapsed > 900) {
+                            touchStart = null;
+                            return;
+                        }
+                        const dx = changed.clientX - start.x;
+                        const dy = changed.clientY - start.y;
+                        if (Math.abs(dx) >= 120 && Math.abs(dx) >= Math.abs(dy) * 1.6) {
+                            postTouchGesture(dx > 0 ? 'back' : 'forward');
+                        } else if (Math.abs(dy) >= 140 && Math.abs(dy) >= Math.abs(dx) * 1.4) {
+                            if (dy > 0 && start.y <= 96) postTouchGesture('reload');
+                            else if (dy < 0 && start.y >= (window.innerHeight - 120)) postTouchGesture('home');
+                        }
+                        touchStart = null;
+                    }, true);
                 })();";
         }
 
@@ -188,7 +305,8 @@ namespace VictumPOS
                 { "printBridgeEnabled", _settingsService.IsPrintBridgeEnabled() },
                 { "printBridgeUrl", PrintBridgeUrl() },
                 { "printBridgePort", _settingsService.GetPrintBridgePort() },
-                { "printBridgeDefaultPrinter", _settingsService.GetPrintBridgeDefaultPrinter() }
+                { "printBridgeDefaultPrinter", _settingsService.GetPrintBridgeDefaultPrinter() },
+                { "touchGesturesEnabled", _settingsService.IsTouchGesturesEnabled() }
             };
 
             return _serializer.Serialize(state);
@@ -445,8 +563,10 @@ namespace VictumPOS
             }
             else
             {
+                WindowState = WindowState.Normal;
                 WindowStyle = WindowStyle.SingleBorderWindow;
                 ResizeMode = ResizeMode.CanResize;
+                WindowState = WindowState.Maximized;
                 Topmost = false;
             }
         }
@@ -457,6 +577,24 @@ namespace VictumPOS
                 SetThreadExecutionState(ES_CONTINUOUS | ES_SYSTEM_REQUIRED | ES_DISPLAY_REQUIRED);
             else
                 SetThreadExecutionState(ES_CONTINUOUS);
+        }
+
+        private void ApplyTouchSettings()
+        {
+            try
+            {
+                var enabled = _settingsService.IsTouchGesturesEnabled();
+                webView.IsManipulationEnabled = enabled;
+                GesturesButton.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+                Stylus.SetIsPressAndHoldEnabled(webView, !enabled);
+                Stylus.SetIsFlicksEnabled(webView, false);
+                Stylus.SetIsTapFeedbackEnabled(webView, !enabled);
+                Stylus.SetIsTouchFeedbackEnabled(webView, !enabled);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("No se pudo aplicar configuracion tactil: " + ex.Message);
+            }
         }
 
         private void ApplyAppAutoStart()
@@ -533,12 +671,30 @@ namespace VictumPOS
         {
             Dictionary<string, object> root;
             string type;
-            if (!WebViewBridge.TryReadType(json, out root, out type) ||
-                !string.Equals(type, "shortcut", StringComparison.OrdinalIgnoreCase))
+            if (!WebViewBridge.TryReadType(json, out root, out type))
                 return false;
 
-            HandleShortcut(WebViewBridge.GetString(root, "action"));
-            return true;
+            if (string.Equals(type, "shortcut", StringComparison.OrdinalIgnoreCase))
+            {
+                HandleShortcut(WebViewBridge.GetString(root, "action"));
+                return true;
+            }
+
+            if (string.Equals(type, "touchKeyboard", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_settingsService.IsTouchKeyboardEnabled())
+                    TouchKeyboardService.Show();
+                return true;
+            }
+
+            if (string.Equals(type, "touchGesture", StringComparison.OrdinalIgnoreCase))
+            {
+                if (_settingsService.IsTouchGesturesEnabled())
+                    DispatchTouchGesture(WebViewBridge.GetString(root, "action"));
+                return true;
+            }
+
+            return false;
         }
 
         private bool TryHandleBrowserNotificationMessage(string json)
@@ -696,6 +852,17 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 Height = 760
             };
             ShowOwnedWindow(window);
+            ApplyRuntimeSettings();
+        }
+
+        private void ApplyRuntimeSettings()
+        {
+            EnableKioskMode();
+            ApplyTouchSettings();
+            ApplyKeepScreenOn();
+            ApplyAppAutoStart();
+            ApplyTerminalCookies();
+            InjectTerminalState();
         }
 
         private void ShowOwnedWindow(Window window)
@@ -716,6 +883,11 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
         private void Shortcuts_Click(object sender, RoutedEventArgs e)
         {
             ShowShortcutsDialog();
+        }
+
+        private void Gestures_Click(object sender, RoutedEventArgs e)
+        {
+            ShowGesturesDialog();
         }
 
         private void ShowShortcutsDialog()
@@ -794,10 +966,88 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
             window.ShowDialog();
         }
 
-        private void AddShortcutRow(Panel parent, string keys, string action)
+        private void ShowGesturesDialog()
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            var content = new StackPanel { Margin = new Thickness(18) };
+            content.Children.Add(new TextBlock
+            {
+                Text = "Gestos tactiles",
+                FontSize = 24,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = Brushes.White
+            });
+            content.Children.Add(new TextBlock
+            {
+                Text = "Acciones tactiles disponibles en la terminal.",
+                FontSize = 13,
+                Foreground = new SolidColorBrush(Color.FromRgb(217, 255, 255)),
+                Margin = new Thickness(0, 4, 0, 0)
+            });
+
+            var header = new Border
+            {
+                Background = (Brush)FindResource("ToolbarGradientBrush"),
+                CornerRadius = new CornerRadius(10, 10, 0, 0),
+                Child = content
+            };
+
+            var list = new StackPanel { Margin = new Thickness(18, 14, 18, 10) };
+            const double gestureLabelWidth = 280;
+            AddShortcutRow(list, "Deslizar derecha", "Atras", gestureLabelWidth);
+            AddShortcutRow(list, "Deslizar izquierda", "Adelante", gestureLabelWidth);
+            AddShortcutRow(list, "Dos dedos vertical", "Scroll", gestureLabelWidth);
+            AddShortcutRow(list, "Toque con dos dedos", "Ver gestos", gestureLabelWidth);
+            AddShortcutRow(list, "Desde borde superior hacia abajo", "Actualizar", gestureLabelWidth);
+            AddShortcutRow(list, "Desde borde inferior hacia arriba", "Inicio", gestureLabelWidth);
+
+            var closeButton = new Button
+            {
+                Width = 120,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                Style = (Style)FindResource("SecondaryButtonStyle"),
+                Margin = new Thickness(18, 2, 18, 18),
+                Content = new TextBlock { Text = "Cerrar", Foreground = Brushes.White }
+            };
+
+            var layout = new DockPanel { Background = Brushes.White };
+            DockPanel.SetDock(header, Dock.Top);
+            DockPanel.SetDock(closeButton, Dock.Bottom);
+            layout.Children.Add(header);
+            layout.Children.Add(closeButton);
+            layout.Children.Add(list);
+
+            var window = new Window
+            {
+                Title = "Gestos tactiles",
+                Content = layout,
+                Width = 640,
+                Height = 540,
+                MinWidth = 560,
+                MinHeight = 420,
+                ResizeMode = ResizeMode.NoResize,
+                WindowStartupLocation = WindowStartupLocation.CenterOwner,
+                Owner = this,
+                Topmost = false,
+                ShowInTaskbar = false,
+                Icon = Icon
+            };
+
+            closeButton.Click += (_, __) => window.Close();
+            window.Loaded += (_, __) =>
+            {
+                window.Activate();
+                window.Focus();
+            };
+            window.ShowDialog();
+        }
+
+        private void AddShortcutRow(Panel parent, string keys, string action, double keyColumnWidth = 160)
         {
             var grid = new Grid { Margin = new Thickness(0, 0, 0, 8) };
-            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(160) });
+            grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(keyColumnWidth) });
             grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
 
             var keyBox = new Border
@@ -811,7 +1061,8 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                 {
                     Text = keys,
                     Foreground = new SolidColorBrush(Color.FromRgb(64, 43, 37)),
-                    FontWeight = FontWeights.SemiBold
+                    FontWeight = FontWeights.SemiBold,
+                    TextWrapping = TextWrapping.Wrap
                 }
             };
 
@@ -867,6 +1118,214 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
 
             e.Handled = true;
             HandleShortcut(action);
+        }
+
+        private void Browser_PreviewMouseWheel(object sender, MouseWheelEventArgs e)
+        {
+            if (!_settingsService.IsWebZoomLocked())
+                return;
+
+            if ((Keyboard.Modifiers & ModifierKeys.Control) == ModifierKeys.Control)
+                e.Handled = true;
+        }
+
+        private void Browser_PreviewTouchDown(object sender, TouchEventArgs e)
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            _activeTouchPoints[e.TouchDevice.Id] = e.GetTouchPoint(webView).Position;
+
+            if (_activeTouchPoints.Count == 1)
+            {
+                _touchStartPoint = e.GetTouchPoint(this).Position;
+                _touchStartTime = DateTime.UtcNow;
+            }
+
+            if (_activeTouchPoints.Count < 2)
+                return;
+
+            _lastTwoFingerAverageY = AverageTouchY();
+            if (_activeTouchPoints.Count == 2)
+            {
+                _twoFingerStartPoint = AverageTouchPoint();
+                _twoFingerStartTime = DateTime.UtcNow;
+                _twoFingerMoved = false;
+            }
+        }
+
+        private void Browser_PreviewTouchMove(object sender, TouchEventArgs e)
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            _activeTouchPoints[e.TouchDevice.Id] = e.GetTouchPoint(webView).Position;
+            if (_activeTouchPoints.Count < 2)
+                return;
+
+            var average = AverageTouchPoint();
+            if (!_lastTwoFingerAverageY.HasValue)
+            {
+                _lastTwoFingerAverageY = average.Y;
+                return;
+            }
+
+            var deltaY = average.Y - _lastTwoFingerAverageY.Value;
+            _lastTwoFingerAverageY = average.Y;
+            if (Math.Abs(deltaY) < 3)
+                return;
+
+            _twoFingerMoved = true;
+            e.Handled = true;
+            ScrollBrowserAtPoint((int)Math.Round(average.X), (int)Math.Round(average.Y), (int)Math.Round(-deltaY * 1.35));
+        }
+
+        private void Browser_PreviewTouchUp(object sender, TouchEventArgs e)
+        {
+            if (!_settingsService.IsTouchGesturesEnabled())
+                return;
+
+            var wasTwoFingerGesture = _activeTouchPoints.Count >= 2;
+            var isSingleFingerGesture = _activeTouchPoints.Count <= 1 && _touchStartPoint.HasValue;
+            _activeTouchPoints.Remove(e.TouchDevice.Id);
+            if (_activeTouchPoints.Count < 2)
+            {
+                _lastTwoFingerAverageY = null;
+                if (wasTwoFingerGesture)
+                    HandleTwoFingerTap(e);
+                _twoFingerStartPoint = null;
+            }
+
+            if (!isSingleFingerGesture)
+                return;
+
+            var end = e.GetTouchPoint(this).Position;
+            var start = _touchStartPoint.Value;
+            _touchStartPoint = null;
+
+            if ((DateTime.UtcNow - _touchStartTime).TotalMilliseconds > 900)
+                return;
+
+            var deltaX = end.X - start.X;
+            var deltaY = end.Y - start.Y;
+            if (Math.Abs(deltaX) >= 120 && Math.Abs(deltaX) >= Math.Abs(deltaY) * 1.6)
+            {
+                e.Handled = true;
+                if (deltaX > 0 && webView.CanGoBack)
+                    DispatchTouchGesture("back");
+                else if (deltaX < 0 && webView.CanGoForward)
+                    DispatchTouchGesture("forward");
+                return;
+            }
+
+            if (Math.Abs(deltaY) >= 140 && Math.Abs(deltaY) >= Math.Abs(deltaX) * 1.4)
+            {
+                var startedNearTop = start.Y <= 96;
+                var startedNearBottom = start.Y >= Math.Max(0, ActualHeight - 120);
+                if (deltaY > 0 && startedNearTop)
+                {
+                    e.Handled = true;
+                    DispatchTouchGesture("reload");
+                }
+                else if (deltaY < 0 && startedNearBottom)
+                {
+                    e.Handled = true;
+                    DispatchTouchGesture("home");
+                }
+            }
+        }
+
+        private void HandleTwoFingerTap(TouchEventArgs e)
+        {
+            if (!_twoFingerStartPoint.HasValue || _twoFingerMoved)
+                return;
+
+            if ((DateTime.UtcNow - _twoFingerStartTime).TotalMilliseconds > 550)
+                return;
+
+            e.Handled = true;
+            DispatchTouchGesture("gestures");
+        }
+
+        private void DispatchTouchGesture(string action)
+        {
+            action = (action ?? "").Trim().ToLowerInvariant();
+            if (string.IsNullOrWhiteSpace(action))
+                return;
+
+            var now = DateTime.UtcNow;
+            if (string.Equals(_lastTouchGestureAction, action, StringComparison.OrdinalIgnoreCase) &&
+                (now - _lastTouchGestureTime).TotalMilliseconds < 450)
+                return;
+
+            _lastTouchGestureAction = action;
+            _lastTouchGestureTime = now;
+
+            switch (action)
+            {
+                case "back":
+                    if (webView.CanGoBack)
+                        webView.GoBack();
+                    break;
+                case "forward":
+                    if (webView.CanGoForward)
+                        webView.GoForward();
+                    break;
+                case "reload":
+                    Reload_Click(this, new RoutedEventArgs());
+                    break;
+                case "home":
+                    Home_Click(this, new RoutedEventArgs());
+                    break;
+                case "shortcuts":
+                    ShowShortcutsDialog();
+                    break;
+                case "gestures":
+                    ShowGesturesDialog();
+                    break;
+            }
+        }
+
+        private Point AverageTouchPoint()
+        {
+            double x = 0;
+            double y = 0;
+            foreach (var point in _activeTouchPoints.Values)
+            {
+                x += point.X;
+                y += point.Y;
+            }
+
+            var count = Math.Max(1, _activeTouchPoints.Count);
+            return new Point(x / count, y / count);
+        }
+
+        private double AverageTouchY()
+        {
+            return AverageTouchPoint().Y;
+        }
+
+        private void ScrollBrowserAtPoint(int x, int y, int deltaY)
+        {
+            if (webView.CoreWebView2 == null || deltaY == 0)
+                return;
+
+            var script = @"
+(function(x, y, deltaY) {
+  var el = document.elementFromPoint(x, y) || document.activeElement || document.scrollingElement || document.documentElement;
+  function findScrollable(node) {
+    while (node && node !== document.body && node !== document.documentElement) {
+      var style = window.getComputedStyle(node);
+      var canScroll = /(auto|scroll)/.test(style.overflowY || '') && node.scrollHeight > node.clientHeight;
+      if (canScroll) return node;
+      node = node.parentElement;
+    }
+    return document.scrollingElement || document.documentElement;
+  }
+  findScrollable(el).scrollTop += deltaY;
+})(" + x + "," + y + "," + deltaY + ");";
+
+            _ = webView.CoreWebView2.ExecuteScriptAsync(script);
         }
 
         private void HandleShortcut(string action)

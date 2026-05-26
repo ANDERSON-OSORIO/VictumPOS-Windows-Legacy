@@ -1,5 +1,5 @@
 #define MyAppName "VictumPOS"
-#define MyAppVersion "1.1.67"
+#define MyAppVersion "1.1.68"
 #define MyAppPublisher "VictumPOS"
 #define MyAppExeName "VictumPOS.exe"
 #define StageDir "..\..\artifacts\VictumPOS-win-installer"
@@ -9,13 +9,13 @@
 AppId={{71C1A403-B050-4C45-BD97-A82AC0E7D4C9}
 AppName={#MyAppName}
 AppVersion={#MyAppVersion}
-AppVerName={#MyAppName} {#MyAppVersion} WebView2
+AppVerName={#MyAppName} {#MyAppVersion} Windows 10
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\VictumPOS
 DefaultGroupName=VictumPOS
 DisableProgramGroupPage=yes
 OutputDir={#InstallerOutputDir}
-OutputBaseFilename=VictumPOS-Windows10-WebView2-Setup
+OutputBaseFilename=VictumPOS-Windows10-Setup
 VersionInfoVersion={#MyAppVersion}
 VersionInfoProductVersion={#MyAppVersion}
 Compression=lzma2

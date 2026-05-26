@@ -91,6 +91,7 @@
     <Compile Include="Services\QueueService.cs" />
     <Compile Include="Services\SettingsService.cs" />
     <Compile Include="Services\SystemNotificationService.cs" />
+    <Compile Include="Services\TouchKeyboardService.cs" />
     <Compile Include="Services\WindowsPrintService.cs" />
     <Compile Include="Views\SettingsPage.xaml.cs">
       <DependentUpon>SettingsPage.xaml</DependentUpon>
