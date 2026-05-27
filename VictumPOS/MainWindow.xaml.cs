@@ -55,6 +55,8 @@ namespace VictumPOS
             _settingsService = new SettingsService();
             webView.BrowserSettings = new BrowserSettings
             {
+                LocalStorage = CefState.Enabled,
+                Databases = CefState.Enabled,
                 WebGl = CefState.Disabled,
                 WindowlessFrameRate = 10
             };

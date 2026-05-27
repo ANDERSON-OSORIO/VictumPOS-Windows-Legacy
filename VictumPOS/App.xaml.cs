@@ -97,7 +97,6 @@ namespace VictumPOS
             AddCefArg(settings, "renderer-process-limit", "1");
             AddCefArg(settings, "process-per-site", "1");
             AddCefArg(settings, "disable-site-isolation-trials", "1");
-            AddCefArg(settings, "disable-background-networking", "1");
             AddCefArg(settings, "disable-component-update", "1");
             AddCefArg(settings, "disable-default-apps", "1");
             AddCefArg(settings, "disable-extensions", "1");
