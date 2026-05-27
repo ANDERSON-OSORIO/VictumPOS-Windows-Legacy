@@ -4,6 +4,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Web.Script.Serialization;
 using System.Windows;
@@ -24,6 +25,7 @@ namespace VictumPOS
         private const int SW_RESTORE = 9;
         private const uint SWP_NOSIZE = 0x0001;
         private const uint SWP_NOMOVE = 0x0002;
+        private const uint SWP_NOZORDER = 0x0004;
         private const uint SWP_SHOWWINDOW = 0x0040;
         private static readonly IntPtr HWND_TOPMOST = new IntPtr(-1);
         private static readonly IntPtr HWND_NOTOPMOST = new IntPtr(-2);
@@ -31,9 +33,11 @@ namespace VictumPOS
         private readonly SettingsService _settingsService;
         private readonly DispatcherTimer _autoReloadTimer;
         private readonly DispatcherTimer _notificationTimer;
+        private readonly DispatcherTimer _printDialogTimer;
         private readonly JavaScriptSerializer _serializer = new JavaScriptSerializer();
         private readonly object _terminalHeadersLock = new object();
         private Dictionary<string, string> _activeTerminalHeaders = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<IntPtr> _resizedPrintDialogs = new HashSet<IntPtr>();
         private PrintService _printService;
         private string _offlineCacheFile = "";
         private bool _requestedWebNotificationPermission;
@@ -83,6 +87,9 @@ namespace VictumPOS
                 _notificationTimer.Stop();
                 NotificationBar.Visibility = Visibility.Collapsed;
             };
+            _printDialogTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(500) };
+            _printDialogTimer.Tick += (_, __) => ResizeBrowserPrintDialogs();
+            _printDialogTimer.Start();
 
             Closing += (_, __) => SetThreadExecutionState(ES_CONTINUOUS);
             KeyDown += MainWindow_KeyDown;
@@ -113,6 +120,35 @@ namespace VictumPOS
 
         [DllImport("user32.dll")]
         private static extern bool SetWindowPos(IntPtr hWnd, IntPtr hWndInsertAfter, int x, int y, int cx, int cy, uint uFlags);
+
+        private delegate bool EnumWindowsProc(IntPtr hWnd, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool EnumWindows(EnumWindowsProc lpEnumFunc, IntPtr lParam);
+
+        [DllImport("user32.dll")]
+        private static extern bool IsWindowVisible(IntPtr hWnd);
+
+        [DllImport("user32.dll")]
+        private static extern uint GetWindowThreadProcessId(IntPtr hWnd, out uint processId);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetWindowText(IntPtr hWnd, StringBuilder text, int count);
+
+        [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+        private static extern int GetClassName(IntPtr hWnd, StringBuilder className, int count);
+
+        [DllImport("user32.dll")]
+        private static extern bool GetWindowRect(IntPtr hWnd, out NativeRect rect);
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct NativeRect
+        {
+            public int Left;
+            public int Top;
+            public int Right;
+            public int Bottom;
+        }
 
         private async void InitAsync()
         {
@@ -1535,6 +1571,102 @@ button{border:0;border-radius:8px;padding:12px 14px;font-size:14px;font-weight:6
                     return true;
 
             return false;
+        }
+
+        private void ResizeBrowserPrintDialogs()
+        {
+            try
+            {
+                var currentProcessId = (uint)System.Diagnostics.Process.GetCurrentProcess().Id;
+                EnumWindows((hWnd, _) =>
+                {
+                    try
+                    {
+                        if (_resizedPrintDialogs.Contains(hWnd) || !IsWindowVisible(hWnd))
+                            return true;
+
+                        uint processId;
+                        GetWindowThreadProcessId(hWnd, out processId);
+                        if (processId != currentProcessId)
+                            return true;
+
+                        var title = ReadWindowText(hWnd);
+                        var className = ReadWindowClass(hWnd);
+                        if (!IsBrowserPrintDialog(title, className))
+                            return true;
+
+                        ResizeAndCenterPrintDialog(hWnd);
+                        _resizedPrintDialogs.Add(hWnd);
+                        Logger.Log("Dialogo de impresion del navegador ajustado. title='" + title + "', class='" + className + "'");
+                    }
+                    catch (Exception ex)
+                    {
+                        Logger.Log("No se pudo ajustar dialogo de impresion: " + ex.Message);
+                    }
+
+                    return true;
+                }, IntPtr.Zero);
+            }
+            catch (Exception ex)
+            {
+                Logger.Log("Error buscando dialogos de impresion: " + ex.Message);
+            }
+        }
+
+        private static string ReadWindowText(IntPtr hWnd)
+        {
+            var buffer = new StringBuilder(256);
+            GetWindowText(hWnd, buffer, buffer.Capacity);
+            return buffer.ToString();
+        }
+
+        private static string ReadWindowClass(IntPtr hWnd)
+        {
+            var buffer = new StringBuilder(128);
+            GetClassName(hWnd, buffer, buffer.Capacity);
+            return buffer.ToString();
+        }
+
+        private static bool IsBrowserPrintDialog(string title, string className)
+        {
+            var normalizedTitle = (title ?? "").Trim().ToLowerInvariant();
+            var normalizedClass = (className ?? "").Trim();
+            var looksLikeNativeDialog =
+                string.Equals(normalizedClass, "#32770", StringComparison.OrdinalIgnoreCase) ||
+                normalizedClass.IndexOf("Chrome_WidgetWin", StringComparison.OrdinalIgnoreCase) >= 0;
+
+            if (!looksLikeNativeDialog)
+                return false;
+
+            return normalizedTitle.Contains("print") ||
+                normalizedTitle.Contains("printer") ||
+                normalizedTitle.Contains("imprimir") ||
+                normalizedTitle.Contains("impresion") ||
+                normalizedTitle.Contains("impresión") ||
+                normalizedTitle.Contains("impresora");
+        }
+
+        private static void ResizeAndCenterPrintDialog(IntPtr hWnd)
+        {
+            NativeRect current;
+            if (!GetWindowRect(hWnd, out current))
+                return;
+
+            var workArea = SystemParameters.WorkArea;
+            var maxWidth = (int)Math.Max(640, workArea.Width * 0.94);
+            var maxHeight = (int)Math.Max(520, workArea.Height * 0.92);
+            var targetWidth = Math.Min(1040, maxWidth);
+            var targetHeight = Math.Min(760, maxHeight);
+
+            var currentWidth = Math.Max(1, current.Right - current.Left);
+            var currentHeight = Math.Max(1, current.Bottom - current.Top);
+            if (currentWidth >= targetWidth - 20 && currentHeight >= targetHeight - 20)
+                return;
+
+            var left = (int)(workArea.Left + Math.Max(0, (workArea.Width - targetWidth) / 2));
+            var top = (int)(workArea.Top + Math.Max(0, (workArea.Height - targetHeight) / 2));
+            SetWindowPos(hWnd, IntPtr.Zero, left, top, targetWidth, targetHeight, SWP_NOZORDER | SWP_SHOWWINDOW);
+            SetForegroundWindow(hWnd);
         }
 
         private void BringMainWindowToFront()
