@@ -52,6 +52,14 @@ New-Item -ItemType Directory -Force $stage, $output | Out-Null
 
 Copy-Item -Recurse -Force (Join-Path $appBin "*") $stage
 
+$localesPath = Join-Path $stage "locales"
+if (Test-Path $localesPath) {
+    $keepLocales = @("en-US.pak", "es.pak", "es-419.pak")
+    Get-ChildItem -Path $localesPath -Filter "*.pak" -File | Where-Object {
+        $keepLocales -notcontains $_.Name
+    } | Remove-Item -Force
+}
+
 $bridgeStage = Join-Path $stage "PrintBridge"
 New-Item -ItemType Directory -Force $bridgeStage | Out-Null
 Copy-Item -Recurse -Force (Join-Path $bridgeBin "*") $bridgeStage

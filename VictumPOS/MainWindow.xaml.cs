@@ -53,6 +53,12 @@ namespace VictumPOS
             InitializeComponent();
 
             _settingsService = new SettingsService();
+            webView.BrowserSettings = new BrowserSettings
+            {
+                WebGl = CefState.Disabled,
+                Databases = CefState.Disabled,
+                WindowlessFrameRate = 10
+            };
             webView.RequestHandler = new TerminalRequestHandler(
                 HomeHost,
                 BuildBridgeScript,

@@ -89,16 +89,37 @@ namespace VictumPOS
                 LogFile = SettingsService.ResolveDataPath("cefsharp.log")
             };
 
-            settings.CefCommandLineArgs["disable-gpu"] = "1";
-            settings.CefCommandLineArgs["disable-gpu-compositing"] = "1";
-            settings.CefCommandLineArgs["disable-smooth-scrolling"] = "1";
-            settings.CefCommandLineArgs["touch-events"] = "enabled";
+            AddCefArg(settings, "disable-gpu", "1");
+            AddCefArg(settings, "disable-gpu-compositing", "1");
+            AddCefArg(settings, "disable-gpu-vsync", "1");
+            AddCefArg(settings, "disable-smooth-scrolling", "1");
+            AddCefArg(settings, "touch-events", "enabled");
+            AddCefArg(settings, "renderer-process-limit", "1");
+            AddCefArg(settings, "process-per-site", "1");
+            AddCefArg(settings, "disable-site-isolation-trials", "1");
+            AddCefArg(settings, "disable-background-networking", "1");
+            AddCefArg(settings, "disable-component-update", "1");
+            AddCefArg(settings, "disable-default-apps", "1");
+            AddCefArg(settings, "disable-extensions", "1");
+            AddCefArg(settings, "disable-pdf-extension", "1");
+            AddCefArg(settings, "disable-plugins", "1");
+            AddCefArg(settings, "disable-sync", "1");
+            AddCefArg(settings, "disable-translate", "1");
+            AddCefArg(settings, "enable-low-end-device-mode", "1");
+            AddCefArg(settings, "disk-cache-size", "67108864");
+            AddCefArg(settings, "media-cache-size", "16777216");
+            AddCefArg(settings, "disable-features", "AudioServiceOutOfProcess,AutofillServerCommunication,BackForwardCache,CalculateNativeWinOcclusion,MediaRouter,OptimizationHints");
 
             if (new SettingsService().IsWebZoomLocked())
-                settings.CefCommandLineArgs["disable-pinch"] = "1";
+                AddCefArg(settings, "disable-pinch", "1");
 
             if (!Cef.Initialize(settings))
                 throw new InvalidOperationException("No se pudo inicializar CefSharp.");
+        }
+
+        private static void AddCefArg(CefSettings settings, string key, string value)
+        {
+            settings.CefCommandLineArgs[key] = value;
         }
 
         protected override void OnExit(ExitEventArgs e)
