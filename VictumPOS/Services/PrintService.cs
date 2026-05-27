@@ -64,9 +64,15 @@ namespace VictumPOS.Services
                     throw new Exception("No hay impresora configurada para: " + printerSelector);
 
                 if (IsNetworkPrinter(printer))
+                {
+                    Logger.Log("Print mode: ESC/POS network");
                     await PrintEscPos(printer, content, logoBase64);
+                }
                 else
-                    _win.Print(content, printer);
+                {
+                    Logger.Log("Print mode: Windows spooler");
+                    _win.Print(content, printer, ResolveAssetPath("logo.png"));
+                }
             }
             catch (Exception ex)
             {
@@ -116,7 +122,12 @@ namespace VictumPOS.Services
 
         private bool IsNetworkPrinter(string printer)
         {
-            return printer.Contains(":");
+            if (string.IsNullOrWhiteSpace(printer) || printer.StartsWith(@"\\", StringComparison.Ordinal))
+                return false;
+
+            var parts = printer.Split(':');
+            int port;
+            return parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]) && int.TryParse(parts[1], out port);
         }
 
         private string ResolvePrinter(string printerSelector)
@@ -146,22 +157,34 @@ namespace VictumPOS.Services
 
         private string ResolveAssetPath(string fileName)
         {
-            var baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            var candidates = new[]
+            foreach (var root in EnumerateAssetRoots())
             {
-                Path.Combine(baseDir, "Assets", fileName),
-                Path.Combine(baseDir, "..", "Assets", fileName),
-                Path.Combine(baseDir, "..", "VictumPOS", "Assets", fileName)
-            };
-
-            foreach (var candidate in candidates)
-            {
-                var fullPath = Path.GetFullPath(candidate);
-                if (File.Exists(fullPath))
-                    return fullPath;
+                var candidate = Path.Combine(root, "Assets", fileName);
+                if (File.Exists(candidate))
+                    return candidate;
             }
 
-            return Path.Combine(baseDir, "Assets", fileName);
+            return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", fileName);
+        }
+
+        private static System.Collections.Generic.IEnumerable<string> EnumerateAssetRoots()
+        {
+            var seen = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var start in new[] { AppDomain.CurrentDomain.BaseDirectory, Environment.CurrentDirectory })
+            {
+                var directory = new DirectoryInfo(start);
+                while (directory != null)
+                {
+                    foreach (var root in new[] { directory.FullName, Path.Combine(directory.FullName, "VictumPOS") })
+                    {
+                        var fullPath = Path.GetFullPath(root);
+                        if (seen.Add(fullPath))
+                            yield return fullPath;
+                    }
+
+                    directory = directory.Parent;
+                }
+            }
         }
     }
 }
