@@ -1,5 +1,5 @@
 #define MyAppName "VictumPOS"
-#define MyAppVersion "1.1.75"
+#define MyAppVersion "1.1.76"
 #define MyAppPublisher "VictumPOS"
 #define MyAppExeName "VictumPOS.exe"
 #define MyAppId "71C1A403-B050-4C45-BD97-A82AC0E7D4C9"

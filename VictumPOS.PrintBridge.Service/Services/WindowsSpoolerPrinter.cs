@@ -31,7 +31,7 @@ namespace VictumPOS.PrintBridge.Service.Services
                 throw new InvalidOperationException("Impresora Windows no encontrada: " + printerName);
 
             var encoding = GetPrinterEncoding();
-            _content = encoding.GetString(encoding.GetBytes(content ?? ""));
+            _content = encoding.GetString(encoding.GetBytes(EscPosTextNormalizer.Normalize(content)));
             _currentY = 0;
             _printed = false;
             DisposeImage(ref _rasterImage);
@@ -278,7 +278,7 @@ namespace VictumPOS.PrintBridge.Service.Services
                     Write(ms, new byte[] { 0x1B, 0x64, 0x02 });
                 }
 
-                var body = encoding.GetBytes(content ?? "");
+                var body = encoding.GetBytes(EscPosTextNormalizer.Normalize(content));
                 Write(ms, body);
                 if (!ContainsCutCommand(body))
                     Write(ms, new byte[] { 0x1B, 0x64, 0x02, 0x1D, 0x56, 0x41, 0x10 });

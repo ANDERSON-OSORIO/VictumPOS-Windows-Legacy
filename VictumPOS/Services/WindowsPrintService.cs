@@ -32,7 +32,7 @@ namespace VictumPOS.Services
                     throw new Exception("Impresora Windows no encontrada: " + printerName);
 
                 var encoding = Encoding.GetEncoding(858);
-                _content = encoding.GetString(encoding.GetBytes(content ?? ""));
+                _content = encoding.GetString(encoding.GetBytes(EscPosTextNormalizer.Normalize(content)));
                 _currentY = 0;
                 _printed = false;
                 DisposeRasterImage();
@@ -127,7 +127,7 @@ namespace VictumPOS.Services
             var encoding = Encoding.GetEncoding(858);
             using (var ms = new MemoryStream())
             {
-                var body = encoding.GetBytes(content ?? "");
+                var body = encoding.GetBytes(EscPosTextNormalizer.Normalize(content));
                 ms.Write(body, 0, body.Length);
 
                 if (!ContainsCutCommand(body))

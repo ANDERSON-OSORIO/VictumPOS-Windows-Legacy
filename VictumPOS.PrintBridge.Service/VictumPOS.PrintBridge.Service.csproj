@@ -49,6 +49,7 @@
     <Compile Include="Services\BridgePrintService.cs" />
     <Compile Include="Services\BridgeSettingsService.cs" />
     <Compile Include="Services\EscPosBridgePrinter.cs" />
+    <Compile Include="Services\EscPosTextNormalizer.cs" />
     <Compile Include="Services\PrintBridgeServer.cs" />
     <Compile Include="Services\WindowsSpoolerPrinter.cs" />
     <Compile Include="Properties\AssemblyInfo.cs" />

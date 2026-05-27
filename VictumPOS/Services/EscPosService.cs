@@ -85,7 +85,8 @@ namespace VictumPOS.Services
                 bytes.AddRange(FeedLines(2));
             }
 
-            bytes.AddRange(encoding.GetBytes(content));
+            var normalizedContent = EscPosTextNormalizer.Normalize(content);
+            bytes.AddRange(encoding.GetBytes(normalizedContent));
 
             if (_settings.IsAutoCutEnabled() && !ContainsCutCommand(bytes))
             {
@@ -113,7 +114,7 @@ namespace VictumPOS.Services
 
             bytes.AddRange(encoding.GetBytes("================================================\n"));
             bytes.AddRange(AlignLeft());
-            bytes.AddRange(encoding.GetBytes(content + "\n"));
+            bytes.AddRange(encoding.GetBytes(EscPosTextNormalizer.Normalize(content) + "\n"));
             bytes.AddRange(encoding.GetBytes("================================================\n"));
             bytes.AddRange(AlignCenter());
             bytes.AddRange(encoding.GetBytes(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\n\n"));

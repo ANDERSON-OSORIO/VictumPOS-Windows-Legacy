@@ -85,6 +85,7 @@
     </Compile>
     <Compile Include="Services\AppStartupService.cs" />
     <Compile Include="Services\EscPosService.cs" />
+    <Compile Include="Services\EscPosTextNormalizer.cs" />
     <Compile Include="Services\Logger.cs" />
     <Compile Include="Services\PrintBridgeControlService.cs" />
     <Compile Include="Services\PrintService.cs" />

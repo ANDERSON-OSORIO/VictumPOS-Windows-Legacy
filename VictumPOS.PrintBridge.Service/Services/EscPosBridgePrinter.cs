@@ -71,7 +71,7 @@ namespace VictumPOS.PrintBridge.Service.Services
                     Write(ms, FeedLines(2));
                 }
 
-                var body = encoding.GetBytes(content);
+                var body = encoding.GetBytes(EscPosTextNormalizer.Normalize(content));
                 Write(ms, body);
                 if (_settings.IsAutoCutEnabled() && !ContainsCutCommand(body))
                 {
@@ -99,7 +99,7 @@ namespace VictumPOS.PrintBridge.Service.Services
 
                 Write(ms, encoding.GetBytes("================================================\n"));
                 Write(ms, AlignLeft());
-                Write(ms, encoding.GetBytes(content + "\n"));
+                Write(ms, encoding.GetBytes(EscPosTextNormalizer.Normalize(content) + "\n"));
                 Write(ms, encoding.GetBytes("================================================\n"));
                 Write(ms, AlignCenter());
                 Write(ms, encoding.GetBytes(DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss") + "\n\n"));
