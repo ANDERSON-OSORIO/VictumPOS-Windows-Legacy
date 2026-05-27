@@ -37,6 +37,9 @@ namespace VictumPOS.Helpers
                     case "ping":
                         Logger.Log("Ping recibido desde web");
                         break;
+                    case "bridgeerror":
+                        Logger.Log("Error bridge JS: " + GetString(root, "message", "error"));
+                        break;
                     case "openCashDrawer":
                         Logger.Log("Comando abrir cajon recibido");
                         break;
@@ -76,6 +79,7 @@ namespace VictumPOS.Helpers
                 return;
             }
 
+            Logger.Log("Print recibido desde bridge. printer='" + printer + "', contentLen=" + content.Length + ", raster=" + IsRasterContent(content) + ", escpos=" + IsEscPosContent(content));
             await printService.Print(content, printer);
             Logger.Log("Print enviado -> " + printer);
         }

@@ -158,8 +158,22 @@ namespace VictumPOS
                     window.chrome.webview = window.chrome.webview || {};
                     window.chrome.webview.postMessage = function(message) {
                         try {
-                            if (window.CefSharp && CefSharp.PostMessage) CefSharp.PostMessage(message);
-                        } catch (_) {}
+                            if (!window.CefSharp || !window.CefSharp.PostMessage) return;
+                            if (typeof message === 'string') {
+                                CefSharp.PostMessage(message);
+                                return;
+                            }
+                            CefSharp.PostMessage(JSON.stringify(message || {}));
+                        } catch (error) {
+                            try {
+                                if (window.CefSharp && window.CefSharp.PostMessage) {
+                                    CefSharp.PostMessage(JSON.stringify({
+                                        type: 'bridgeError',
+                                        message: String(error && error.message ? error.message : error)
+                                    }));
+                                }
+                            } catch (_) {}
+                        }
                     };
                     const original = window.Notification;
                     if (original) {
