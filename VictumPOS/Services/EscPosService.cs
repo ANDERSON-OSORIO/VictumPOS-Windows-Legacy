@@ -26,6 +26,7 @@ namespace VictumPOS.Services
             if (string.IsNullOrWhiteSpace(content))
                 throw new Exception("Contenido de impresion vacio");
 
+            Logger.Log("Intentando imprimir en " + ip + ":" + port);
             using (var client = new TcpClient())
             {
                 var connectTask = client.ConnectAsync(ip, port);
@@ -34,11 +35,16 @@ namespace VictumPOS.Services
                     throw new TimeoutException("No se pudo conectar a " + ip + ":" + port);
 
                 await connectTask;
+                Logger.Log("Conectado a impresora");
                 using (var stream = client.GetStream())
                 {
-                    var bytes = IsRasterImage(content)
+                    var isRaster = IsRasterImage(content);
+                    var isEscPos = IsEscPosContent(content);
+                    Logger.Log("Raster detected: " + isRaster + ". ESC/POS detected: " + isEscPos + ". Content length: " + content.Length);
+
+                    var bytes = isRaster
                         ? BuildRasterImageTicket(content)
-                        : (IsEscPosContent(content) ? BuildRawEscPosTicket(content, logoBase64) : BuildTicket(content, logoBase64));
+                        : (isEscPos ? BuildRawEscPosTicket(content, logoBase64) : BuildTicket(content, logoBase64));
 
                     await stream.WriteAsync(bytes, 0, bytes.Length);
                     await stream.FlushAsync();
@@ -192,6 +198,9 @@ namespace VictumPOS.Services
                             g.DrawImage(original, new Rectangle(0, 0, width, height));
                         }
 
+                        if (skipDenseImage && IsMostlyDark(normalized))
+                            RemoveDarkLogoBackground(normalized);
+
                         var bytes = new List<byte>();
                         var bytesPerLine = (width + 7) / 8;
                         var blackPixels = 0;
@@ -227,8 +236,12 @@ namespace VictumPOS.Services
                             }
                         }
 
+                        Logger.Log("Raster ESC/POS bytes generated: " + bytes.Count);
                         if (skipDenseImage && totalPixels > 0 && blackPixels / (double)totalPixels > 0.85)
+                        {
+                            Logger.Log("Logo omitido porque la conversion quedaria como bloque negro.");
                             return null;
+                        }
 
                         return bytes.ToArray();
                     }
@@ -239,6 +252,41 @@ namespace VictumPOS.Services
                 Logger.Log("Error convirtiendo imagen: " + ex.Message);
                 return null;
             }
+        }
+
+        private static bool IsMostlyDark(Bitmap image)
+        {
+            var darkPixels = 0;
+            var totalPixels = image.Width * image.Height;
+            for (var y = 0; y < image.Height; y++)
+            {
+                for (var x = 0; x < image.Width; x++)
+                {
+                    if (IsDarkNeutral(image.GetPixel(x, y)))
+                        darkPixels++;
+                }
+            }
+
+            return totalPixels > 0 && darkPixels / (double)totalPixels > 0.60;
+        }
+
+        private static void RemoveDarkLogoBackground(Bitmap image)
+        {
+            for (var y = 0; y < image.Height; y++)
+            {
+                for (var x = 0; x < image.Width; x++)
+                {
+                    var color = image.GetPixel(x, y);
+                    image.SetPixel(x, y, IsDarkNeutral(color) ? Color.White : Color.Black);
+                }
+            }
+        }
+
+        private static bool IsDarkNeutral(Color color)
+        {
+            var max = Math.Max(color.R, Math.Max(color.G, color.B));
+            var min = Math.Min(color.R, Math.Min(color.G, color.B));
+            return color.A < 24 || (max < 55 && max - min < 18);
         }
 
         private bool IsRasterImage(string content)

@@ -32,7 +32,7 @@ namespace VictumPOS.PrintBridge.Service.Services
 
                 BridgeLogger.Log("Print selector='" + printerSelector + "' resolved='" + printer + "'");
 
-                if (printer.Contains(":") && !printer.StartsWith(@"\\", StringComparison.Ordinal))
+                if (IsNetworkPrinter(printer))
                     await PrintEscPosWithRetries(printer, content);
                 else
                     _windows.Print(content, printer);
@@ -75,6 +75,16 @@ namespace VictumPOS.PrintBridge.Service.Services
             }
 
             throw lastError ?? new InvalidOperationException("No se pudo imprimir en ESC/POS");
+        }
+
+        private static bool IsNetworkPrinter(string printer)
+        {
+            if (string.IsNullOrWhiteSpace(printer) || printer.StartsWith(@"\\", StringComparison.Ordinal))
+                return false;
+
+            var parts = printer.Split(':');
+            int port;
+            return parts.Length == 2 && !string.IsNullOrWhiteSpace(parts[0]) && int.TryParse(parts[1], out port);
         }
 
         private string ResolvePrinter(string printerSelector)

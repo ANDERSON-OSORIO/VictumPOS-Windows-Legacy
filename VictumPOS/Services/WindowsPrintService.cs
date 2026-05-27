@@ -1,5 +1,6 @@
 using System;
 using System.Drawing;
+using System.Drawing.Imaging;
 using System.Drawing.Printing;
 using System.IO;
 using System.Linq;
@@ -14,12 +15,16 @@ namespace VictumPOS.Services
         private int _currentY;
         private bool _printed;
         private Image _rasterImage;
+        private string _logoPathOverride;
         private static Image _cachedLogo;
+        private static string _cachedLogoPath = "";
 
-        public void Print(string content, string printerName)
+        public void Print(string content, string printerName, string logoPath = null)
         {
             try
             {
+                _logoPathOverride = logoPath;
+
                 if (string.IsNullOrWhiteSpace(printerName))
                     throw new Exception("Nombre de impresora vacio");
 
@@ -33,13 +38,16 @@ namespace VictumPOS.Services
                 DisposeRasterImage();
                 _rasterImage = TryLoadRasterImage(content);
 
+                var isEscPos = IsEscPosContent(content);
+                Logger.Log("WindowsPrint raster detected: " + (_rasterImage != null) + ". ESC/POS detected: " + isEscPos);
+
                 if (_rasterImage != null)
                 {
                     PrintRasterImage(printerName);
                     return;
                 }
 
-                if (IsEscPosContent(content))
+                if (isEscPos)
                 {
                     PrintRawEscPos(printerName, content);
                     return;
@@ -62,6 +70,7 @@ namespace VictumPOS.Services
             finally
             {
                 DisposeRasterImage();
+                _logoPathOverride = null;
             }
         }
 
@@ -171,11 +180,24 @@ namespace VictumPOS.Services
                     if (!File.Exists(path))
                         return;
 
+                    Logger.Log("Logo path: " + path);
                     using (var imgTemp = Image.FromFile(path))
                     {
-                        var logoWidth = 260;
-                        var logoHeight = (int)((double)imgTemp.Height / imgTemp.Width * logoWidth);
-                        _cachedLogo = new Bitmap(imgTemp, new Size(logoWidth, logoHeight));
+                        var logoWidth = Math.Min(Math.Max(1, width - 20), 180);
+                        _cachedLogo = CreatePrintableLogo(imgTemp, logoWidth);
+                        _cachedLogoPath = path;
+                    }
+                }
+                else
+                {
+                    var path = ResolveLogoPath();
+                    if (!string.Equals(_cachedLogoPath, path, StringComparison.OrdinalIgnoreCase))
+                    {
+                        _cachedLogo.Dispose();
+                        _cachedLogo = null;
+                        _cachedLogoPath = "";
+                        TryDrawLogo(g, width);
+                        return;
                     }
                 }
 
@@ -191,12 +213,99 @@ namespace VictumPOS.Services
 
         private string ResolveLogoPath()
         {
+            if (!string.IsNullOrWhiteSpace(_logoPathOverride) && File.Exists(_logoPathOverride))
+                return _logoPathOverride;
+
             var settings = new SettingsService();
             var configured = settings.GetPrintLogoPath();
             if (!string.IsNullOrWhiteSpace(configured) && File.Exists(configured))
                 return configured;
 
+            foreach (var root in EnumerateAssetRoots())
+            {
+                var candidate = Path.Combine(root, "Assets", "logo.png");
+                if (File.Exists(candidate))
+                    return candidate;
+            }
+
+            Logger.Log("Logo no encontrado en Assets");
             return Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "Assets", "logo.png");
+        }
+
+        private static System.Collections.Generic.IEnumerable<string> EnumerateAssetRoots()
+        {
+            var seen = new System.Collections.Generic.HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var start in new[] { AppDomain.CurrentDomain.BaseDirectory, Environment.CurrentDirectory })
+            {
+                var directory = new DirectoryInfo(start);
+                while (directory != null)
+                {
+                    foreach (var root in new[] { directory.FullName, Path.Combine(directory.FullName, "VictumPOS") })
+                    {
+                        var fullPath = Path.GetFullPath(root);
+                        if (seen.Add(fullPath))
+                            yield return fullPath;
+                    }
+
+                    directory = directory.Parent;
+                }
+            }
+        }
+
+        private static Bitmap CreatePrintableLogo(Image source, int width)
+        {
+            var height = Math.Max(1, (int)Math.Ceiling((double)source.Height / source.Width * width));
+            using (var resized = new Bitmap(width, height, PixelFormat.Format32bppArgb))
+            {
+                using (var g = Graphics.FromImage(resized))
+                {
+                    g.Clear(Color.White);
+                    g.CompositingMode = System.Drawing.Drawing2D.CompositingMode.SourceOver;
+                    g.CompositingQuality = System.Drawing.Drawing2D.CompositingQuality.HighQuality;
+                    g.InterpolationMode = System.Drawing.Drawing2D.InterpolationMode.HighQualityBicubic;
+                    g.PixelOffsetMode = System.Drawing.Drawing2D.PixelOffsetMode.HighQuality;
+                    g.SmoothingMode = System.Drawing.Drawing2D.SmoothingMode.HighQuality;
+                    g.DrawImage(source, new Rectangle(0, 0, width, height));
+                }
+
+                if (!IsMostlyDark(resized))
+                    return new Bitmap(resized);
+
+                var printable = new Bitmap(width, height, PixelFormat.Format24bppRgb);
+                for (var y = 0; y < height; y++)
+                {
+                    for (var x = 0; x < width; x++)
+                    {
+                        var color = resized.GetPixel(x, y);
+                        printable.SetPixel(x, y, IsDarkNeutral(color) ? Color.White : Color.Black);
+                    }
+                }
+
+                return printable;
+            }
+        }
+
+        private static bool IsMostlyDark(Bitmap image)
+        {
+            var darkPixels = 0;
+            var totalPixels = image.Width * image.Height;
+            for (var y = 0; y < image.Height; y++)
+            {
+                for (var x = 0; x < image.Width; x++)
+                {
+                    if (IsDarkNeutral(image.GetPixel(x, y)))
+                        darkPixels++;
+                }
+            }
+
+            return totalPixels > 0 && darkPixels / (double)totalPixels > 0.60;
+        }
+
+        private static bool IsDarkNeutral(Color color)
+        {
+            var max = Math.Max(color.R, Math.Max(color.G, color.B));
+            var min = Math.Min(color.R, Math.Min(color.G, color.B));
+            return color.A < 24 || (max < 55 && max - min < 18);
         }
 
         private void DrawLine(Graphics g, string text, Font font, int left, int width)
