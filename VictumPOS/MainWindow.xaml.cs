@@ -56,7 +56,6 @@ namespace VictumPOS
             webView.BrowserSettings = new BrowserSettings
             {
                 WebGl = CefState.Disabled,
-                Databases = CefState.Disabled,
                 WindowlessFrameRate = 10
             };
             webView.RequestHandler = new TerminalRequestHandler(
